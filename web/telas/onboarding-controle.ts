@@ -63,6 +63,11 @@ export type DepsOnboarding = {
   texto?: () => boolean;
   /** O nome sugerido na primeira pergunta (tirado do e-mail da conta). */
   nomeSugerido?: () => string | null;
+  /**
+   * #78: na web, num espaço sem conta, a saída da etapa da IA para quem já usa o nod noutro computador. `disponivel` diz se
+   * a tela mostra o botão; `entrar` abre o cartão de conta (a camada já fechou). Ausente = sem saída, como antes.
+   */
+  entrarNaConta?: { disponivel: () => boolean; entrar: () => void };
 };
 
 export type TelaOnboarding = ReturnType<typeof criarTelaOnboarding>;
@@ -185,6 +190,7 @@ export function criarTelaOnboarding(deps: DepsOnboarding) {
       appConectando: deps.conectando(d.modelo.app.slug),
       ocupado,
       iasMac: deps.iasMac?.() ?? null,
+      entrarNaConta: deps.entrarNaConta?.disponivel() ?? false,
     };
   }
 
@@ -490,6 +496,12 @@ export function criarTelaOnboarding(deps: DepsOnboarding) {
   const acoes: Record<string, (el: HTMLElement) => Promise<void> | void> = {
     "onboarding-pular-ola": () => passarOla(),
     "onboarding-depois": () => fazerDepois(),
+    // #78: fecha a camada (sem concluir o onboarding deste espaço) e abre o cartão de conta na conversa do Nod.
+    "onboarding-entrar-na-conta": () => {
+      if (!deps.entrarNaConta?.disponivel()) return;
+      deps.abrir(false);
+      deps.entrarNaConta.entrar();
+    },
     "onboarding-ia-entrar": (el) => iaNoMac(iaDoClique(el), "entrar"),
     "onboarding-ia-instalar": (el) => iaNoMac(iaDoClique(el), "instalar"),
     "onboarding-ia-testar": (el) => testarIa(iaDoClique(el)),

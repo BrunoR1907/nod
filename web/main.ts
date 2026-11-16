@@ -79,7 +79,7 @@ import { mascararDormindo, RetryDoAcordar, type PassosDoRetry } from "./lib/retr
 import { contaApi, criarApi, minhaContaApi, ErroApi, observarRede, sessao as sessaoApi, type Api } from "./lib/api.ts";
 import { reagirACota } from "./lib/cota-provisorio.ts";
 import { resolverProvaNoNavegador } from "./lib/prova-trabalho.ts";
-import { abreProvisorio, CHAVE_EQUIPE, decidirPareamento, criarContaNoChat, equipeNoApp, fraseDoErro as fraseDoErroDeConta, linkDaEquipe, type PassoPareamento } from "./telas/conta-no-chat.ts";
+import { abreProvisorio, CHAVE_EQUIPE, decidirPareamento, criarContaNoChat, equipeNoApp, fraseDoErro as fraseDoErroDeConta, linkDaEquipe, saidaParaConta, type PassoPareamento } from "./telas/conta-no-chat.ts";
 import { criarMinhaConta } from "./telas/minha-conta.ts";
 import { reduzirFoto } from "./lib/reduzir-foto.ts";
 import { deveLembrar, htmlLembrete, jaFalou, marcarFalou } from "./telas/lembrete-conta.ts";
@@ -994,6 +994,11 @@ const telaOnboarding = criarTelaOnboarding({
   aberto: () => estado.onboardingAberto,
   hidratar: (o) => dispatch({ tipo: "hidratar-onboarding", onboarding: o }),
   abrir: (aberto) => dispatch({ tipo: "onboarding-aberto", aberto }),
+  // #78: na web, num espaço sem conta, a etapa da IA deixa entrar na conta (onde estão os bots e o motor do outro computador).
+  entrarNaConta: {
+    disponivel: () => saidaParaConta({ contas: contas !== null, noApp: window.nodDesktop !== undefined, estado: contaAtual }),
+    entrar: () => void telaConta.abrir("inicio", true),
+  },
   ligacao: { ativa: () => telaLigacao.ativa(), cheia: () => telaLigacao.cheia(), atenderOnboarding: (l) => telaLigacao.atenderOnboarding(l) },
   garantirAgente: async (agenteId) => {
     for (let i = 0; i < 6 && api; i++) {
