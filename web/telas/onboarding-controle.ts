@@ -280,7 +280,7 @@ export function criarTelaOnboarding(deps: DepsOnboarding) {
     const a = deps.api();
     if (!a) return;
     const o = await a.onboarding().catch(() => null);
-    if (!o) return;
+    if (!o || !deps.aberto()) return;
     hidratar(o);
     // Com teste, o "pronto" do servidor é só o login: quem decide o próximo passo é o teste (onboarding-teste.ts).
     if (teste.ativo()) { teste.aoEstadoDoServidor(o); return; }
@@ -499,6 +499,7 @@ export function criarTelaOnboarding(deps: DepsOnboarding) {
     // #78: fecha a camada (sem concluir o onboarding deste espaço) e abre o cartão de conta na conversa do Nod.
     "onboarding-entrar-na-conta": () => {
       if (!deps.entrarNaConta?.disponivel()) return;
+      if (sonda !== null) { window.clearInterval(sonda); sonda = null; }
       deps.abrir(false);
       deps.entrarNaConta.entrar();
     },

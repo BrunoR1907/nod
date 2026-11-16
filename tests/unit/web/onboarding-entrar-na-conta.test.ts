@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { EstadoOnboarding } from "../../../src/contracts/onboarding.ts";
 import { saidaParaConta } from "../../../web/telas/conta-no-chat.ts";
@@ -23,6 +24,16 @@ const tela = (entrarNaConta: boolean, procurando = false) =>
   ({ dados: semIa, procurando, iaEntrando: null, notaIa: null, teste: null, iasMac: null, entrarNaConta });
 
 describe("a saída 'Entrar na sua conta' na etapa da IA", () => {
+  it("mantém o alvo de toque de 44 px mesmo com a regra posterior do contorno", () => {
+    const css = readFileSync(new URL("../../../web/onboarding.css", import.meta.url), "utf8");
+    const regra = (seletor: string): string => css.match(new RegExp(`${seletor.replaceAll(".", "\\.")}\\s*\\{([^}]*)\\}`))?.[1] ?? "";
+    const especificidade = (seletor: string): number => seletor.match(/\./g)?.length ?? 0;
+    const alvo = ".ob-outra-conta .ob-pilula.contorno";
+
+    expect(regra(alvo)).toMatch(/height:\s*44px/);
+    expect(especificidade(alvo)).toBeGreaterThan(especificidade(".ob-pilula.contorno"));
+  });
+
   it("aparece na tela da IA do navegador, inclusive enquanto procura, só com entrarNaConta", () => {
     for (const procurando of [false, true]) {
       const h = htmlExecutor(tela(true, procurando));
@@ -51,16 +62,18 @@ describe("o clique em 'Entrar na sua conta' (controlador)", () => {
   beforeEach(() => { vi.useFakeTimers(); });
   afterEach(() => { vi.useRealTimers(); (globalThis as { window?: unknown }).window = original; });
 
-  function montar(disponivel: boolean) {
+  function montar(disponivel: boolean, onboarding: () => Promise<EstadoOnboarding> = async () => semIa) {
     let aberto = true;
     const abrir = vi.fn((v: boolean) => { aberto = v; });
     const entrar = vi.fn();
     const concluir = vi.fn();
+    const sondar = vi.fn(onboarding);
+    const hidratar = vi.fn();
     const deps = {
-      api: () => ({ etapaOnboarding: async () => semIa, onboarding: async () => semIa, concluirOnboarding: concluir }),
+      api: () => ({ etapaOnboarding: async () => semIa, onboarding: sondar, concluirOnboarding: concluir }),
       dados: () => semIa,
       aberto: () => aberto,
-      hidratar: () => undefined,
+      hidratar,
       abrir,
       ligacao: { ativa: () => null, cheia: () => false, atenderOnboarding: () => false },
       garantirAgente: async () => true,
@@ -75,7 +88,7 @@ describe("o clique em 'Entrar na sua conta' (controlador)", () => {
     } as unknown as DepsOnboarding;
     // Navegador comum: sem a ponte do app, sem o teste das IAs.
     (globalThis as { window?: unknown }).window = { nodDesktop: undefined, setTimeout, clearTimeout, setInterval, clearInterval };
-    return { t: criarTelaOnboarding(deps), abrir, entrar, concluir };
+    return { t: criarTelaOnboarding(deps), abrir, entrar, concluir, sondar, hidratar };
   }
 
   it("a camada da IA mostra a saída; o clique fecha a camada e abre o cartão de conta, sem concluir o onboarding", async () => {
@@ -89,6 +102,24 @@ describe("o clique em 'Entrar na sua conta' (controlador)", () => {
     expect(m.entrar).toHaveBeenCalledOnce();
     expect(m.concluir).not.toHaveBeenCalled();
     expect(m.t.camada()).toBe("");
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(m.sondar).not.toHaveBeenCalled();
+  });
+
+  it("ignora a resposta de uma sondagem que já estava em voo quando a pessoa sai", async () => {
+    let responder: ((estado: EstadoOnboarding) => void) | undefined;
+    const m = montar(true, () => new Promise((ok) => { responder = ok; }));
+    await m.t.acoes["onboarding-pular-ola"]!({ dataset: {} } as HTMLElement);
+    m.t.camada();
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(m.sondar).toHaveBeenCalledOnce();
+
+    await m.t.acoes["onboarding-entrar-na-conta"]!({ dataset: {} } as HTMLElement);
+    responder?.(semIa);
+    await Promise.resolve();
+    expect(m.hidratar).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(m.sondar).toHaveBeenCalledOnce();
   });
 
   it("com conta, na equipe ou no app (disponivel = false): sem saída e o clique não faz nada", async () => {
