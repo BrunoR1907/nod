@@ -239,6 +239,7 @@ import { renderAbaQuadros, renderAbaSuaVez, renderFolhaRecentes, renderTabBar, r
 import { ligarTecladoVisivel } from "./lib/teclado-visivel.ts";
 import type { ItemDoMenuDaPilula } from "./lib/gesto-da-pilula.ts";
 import { DICA_MS, MARCA_CUTUCAO, MARCA_DICA, deveCutucar, criarFiltroDeEco, deveMostrarDica, escFechaABusca, gravarMarca, lerMarca, type Marcas, type ViaDaBusca } from "./lib/descoberta-da-busca.ts";
+import { comVerificadorDoProvisorio, criarTravaDeSessao } from "./lib/trava-sessao.ts";
 // NOD-117: as teclas dos atalhos mudam com o lugar (app do Mac, navegador no Mac, Windows/Linux): web/lib/atalhos.ts.
 const LUGAR_TECLADO = lugarAtual();
 const ATALHO_NOVO_BOT = atalhoDoNovoBot(LUGAR_TECLADO);
@@ -349,6 +350,8 @@ let entrada: {
   /** #81: a tela "Já usa o nod?" da primeira visita na web, antes do espaço provisório. */
   primeiro?: { ocupado: boolean; erro: string | null } | null;
 } = { modo: null, recusado: false };
+/** Login e criação do espaço mudam o mesmo cookie; nunca podem correr em paralelo nesta aba. */
+const travaDaSessao = criarTravaDeSessao();
 
 // definido em 2026-09-24 (revisão da interface): a tela principal é o chat; quem esconde o painel do
 // bot espera achá-lo escondido na próxima conversa e no próximo carregamento.
@@ -3165,17 +3168,19 @@ const contaDaEntrada = (m: Partial<NonNullable<typeof entrada.conta>>) => { entr
 function entrarPelaTela(form: HTMLFormElement): Promise<void> {
   const d = new FormData(form);
   return trabalharNaEntrada(async () => {
-    try {
-      const r = await contaApi.entrar(String(d.get("email") ?? "").trim(), String(d.get("senha") ?? ""));
-      if (r.resultado === "recusado") return contaDaEntrada({ erro: ERRO_ENTRAR });
-      if (r.resultado === "entrou" && r.trocaApp && window.nodDesktop?.trocarConta) {
-        if (await window.nodDesktop.trocarConta(r.trocaApp).catch(() => false)) return;
-        return contaDaEntrada({ erro: FALHA_TROCA_APP });
+    await travaDaSessao.executar(async () => {
+      try {
+        const r = await contaApi.entrar(String(d.get("email") ?? "").trim(), String(d.get("senha") ?? ""));
+        if (r.resultado === "recusado") return contaDaEntrada({ erro: ERRO_ENTRAR });
+        if (r.resultado === "entrou" && r.trocaApp && window.nodDesktop?.trocarConta) {
+          if (await window.nodDesktop.trocarConta(r.trocaApp).catch(() => false)) return;
+          return contaDaEntrada({ erro: FALHA_TROCA_APP });
+        }
+        window.location.reload();
+      } catch (e) {
+        contaDaEntrada({ erro: fraseDoErroDeConta(e) });
       }
-      window.location.reload();
-    } catch (e) {
-      contaDaEntrada({ erro: fraseDoErroDeConta(e) });
-    }
+    });
   });
 }
 function recuperarPelaTela(form: HTMLFormElement): Promise<void> {
@@ -3764,27 +3769,34 @@ async function seguirEntrarPrimeiro(i: IntencaoEntrada): Promise<void> {
   }
 }
 async function provisorioDaWeb(): Promise<boolean> {
-  let v: string | null = null;
-  try { v = window.localStorage.getItem(CHAVE_VERIFICADOR); } catch { /* sem storage: um verificador por visita */ }
-  if (!v || !/^[A-Za-z0-9_-]{32,128}$/.test(v)) {
-    const b = crypto.getRandomValues(new Uint8Array(32));
-    v = btoa(String.fromCharCode(...b)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-    try { window.localStorage.setItem(CHAVE_VERIFICADOR, v); } catch { /* idem */ }
-  }
-  try {
-    await contaApi.provisorioWeb(v);
-    return true;
-  } catch (e) {
-    if (e instanceof ErroApi && e.desafio && e.bits) {
-      const resposta = await resolverProvaNoNavegador(e.desafio, e.bits);
-      if (resposta !== null) {
-        try { await contaApi.provisorioWeb(v, { desafio: e.desafio, resposta }); return true; } catch { /* mostra o limite abaixo */ }
-      }
-    }
-    // Muitos espaços novos da mesma rede (NAT de escritório, CGNAT): a tela de entrada diz por quê, em vez de só aparecer.
-    if (e instanceof ErroApi && e.status === 429) entrada = { ...entrada, conta: { etapa: "entrar", enviadoPara: null, ocupado: false, ...entrada.conta, erro: LIMITE_PROVISORIO } };
-    return false;
-  }
+  return travaDaSessao.executar(async () => {
+    // O login pode ter vencido a corrida enquanto o boot esperava a trava. Nesse caso, mantém a sessão da conta.
+    try { await sessaoApi.atual(); return true; } catch (e) { if (!(e instanceof ErroApi && e.status === 401)) return false; }
+    return comVerificadorDoProvisorio({
+      ler: () => { try { return window.localStorage.getItem(CHAVE_VERIFICADOR); } catch { return null; } },
+      gravar: (v) => { try { window.localStorage.setItem(CHAVE_VERIFICADOR, v); } catch { /* sem storage: um verificador por visita */ } },
+      gerar: () => {
+        const b = crypto.getRandomValues(new Uint8Array(32));
+        return btoa(String.fromCharCode(...b)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+      },
+      abrir: async (v) => {
+        try {
+          await contaApi.provisorioWeb(v);
+          return true;
+        } catch (e) {
+          if (e instanceof ErroApi && e.desafio && e.bits) {
+            const resposta = await resolverProvaNoNavegador(e.desafio, e.bits);
+            if (resposta !== null) {
+              try { await contaApi.provisorioWeb(v, { desafio: e.desafio, resposta }); return true; } catch { /* mostra o limite abaixo */ }
+            }
+          }
+          // Muitos espaços novos da mesma rede (NAT de escritório, CGNAT): a tela de entrada diz por quê, em vez de só aparecer.
+          if (e instanceof ErroApi && e.status === 429) entrada = { ...entrada, conta: { etapa: "entrar", enviadoPara: null, ocupado: false, ...entrada.conta, erro: LIMITE_PROVISORIO } };
+          return false;
+        }
+      },
+    });
+  });
 }
 
 /** NOD-346: o servidor não diz se a conta existiu (sem enumeração); a dica cobre quem excluiu e voltou depois do prazo. */
@@ -5822,7 +5834,12 @@ const ACOES: Record<string, (el: HTMLElement) => Promise<void> | void> = {
     }
     setTimeout(() => { el.textContent = antes; }, 1500);
   },
-  entrar: (el) => agir(async () => { await iniciarSessao(await sessaoApi.entrar(el.dataset.pessoa ?? "")); void abrirTarefaGuardada(); abrirQuadroGuardado(); await lerContas(null); }),
+  entrar: (el) => agir(async () => {
+    await travaDaSessao.executar(async () => {
+      await iniciarSessao(await sessaoApi.entrar(el.dataset.pessoa ?? ""));
+      void abrirTarefaGuardada(); abrirQuadroGuardado(); await lerContas(null);
+    });
+  }),
   navegar: (el) => {
     const tela = el.dataset.tela;
     if (tela === "conectores") abrirMarketplace();

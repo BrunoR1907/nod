@@ -23,6 +23,7 @@ describe("a tela 'Já usa o nod?'", () => {
   it("oferece entrar na conta (Google, código por e-mail, e-mail e senha, código de outro computador) e começar sem conta", () => {
     const h = htmlEntrarPrimeiro(base);
     expect(h).toContain("Já usa o nod?");
+    expect(h).toContain('<h2 class="cc-titulo">Já usa o nod?</h2>');
     expect(h).toContain('data-intencao="google"');
     expect(h).toContain(">Continuar com Google<");
     expect(h).toContain('data-intencao="email"');
@@ -30,6 +31,7 @@ describe("a tela 'Já usa o nod?'", () => {
     expect(h).toContain('data-intencao="parear-entrar"');
     expect(h).toContain('data-intencao="sem-conta"');
     expect(h).toContain(">Começar sem conta<");
+    expect(h).toMatch(/class="bt pri"[^>]*data-intencao="sem-conta"/);
     expect(h.match(/data-act="entrada-primeiro"/g)).toHaveLength(4);
   });
 

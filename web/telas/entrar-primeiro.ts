@@ -43,15 +43,15 @@ export function htmlEntrarPrimeiro(v: { google: boolean; codigoPorEmail: boolean
   const equipe = v.equipe ? `<a class="bt cc-link" href="${esc(v.equipe)}">Sou da equipe: entrar com Google</a>` : "";
   const erro = v.erro ? `<p class="cc-erro" role="alert">${esc(v.erro)}</p>` : "";
   return `<section class="tela entrar entrar-primeiro"><h1>nod</h1>
-    <div class="cc-cartao" role="group" aria-label="Entrar na sua conta"><h3 class="cc-titulo">Já usa o nod?</h3>
+    <div class="cc-cartao" role="group" aria-label="Entrar na sua conta"><h2 class="cc-titulo">Já usa o nod?</h2>
       <p class="cc-texto">Entre na sua conta para ver os seus bots daqui. Eles seguem rodando no computador onde o nod está instalado.</p>${erro}
       <div class="cc-acoes cc-coluna">${google}${codigo}</div>
       <p class="cc-rodape">${bt("parear-entrar", "Tenho um código de outro computador", "cc-link", o)}${equipe}</p>
     </div>
     ${v.formEmailSenha}
-    <div class="cc-cartao" role="group" aria-label="Começar sem conta"><h3 class="cc-titulo">Primeira vez aqui?</h3>
+    <div class="cc-cartao cc-sem-conta" role="group" aria-label="Começar sem conta"><h2 class="cc-titulo">Primeira vez aqui?</h2>
       <p class="cc-texto">Use sem cadastro. Dá para criar a conta depois, sem perder nada.</p>
-      <div class="cc-acoes">${bt("sem-conta", "Começar sem conta", v.google || v.codigoPorEmail ? "" : "pri", o)}</div>
+      <div class="cc-acoes">${bt("sem-conta", "Começar sem conta", "pri", o)}</div>
     </div>
   </section>`;
 }
