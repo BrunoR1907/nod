@@ -80,6 +80,7 @@ import { contaApi, criarApi, minhaContaApi, ErroApi, observarRede, sessao as ses
 import { reagirACota } from "./lib/cota-provisorio.ts";
 import { resolverProvaNoNavegador } from "./lib/prova-trabalho.ts";
 import { abreProvisorio, CHAVE_EQUIPE, decidirPareamento, criarContaNoChat, equipeNoApp, fraseDoErro as fraseDoErroDeConta, linkDaEquipe, type PassoPareamento } from "./telas/conta-no-chat.ts";
+import { etapaDaIntencao, htmlEntrarPrimeiro, intencaoDe, mostrarEntrarPrimeiro, type IntencaoEntrada } from "./telas/entrar-primeiro.ts";
 import { criarMinhaConta } from "./telas/minha-conta.ts";
 import { reduzirFoto } from "./lib/reduzir-foto.ts";
 import { deveLembrar, htmlLembrete, jaFalou, marcarFalou } from "./telas/lembrete-conta.ts";
@@ -345,6 +346,8 @@ let entrada: {
   conta?: { etapa: "entrar" | "recuperar"; erro: string | null; enviadoPara: string | null; ocupado: boolean };
   /** NOD-345: a página do link de recuperação (`#redefinir=<token>`); o token sai da URL na hora. */
   redefinir?: { token: string; erro: string | null; vencido: boolean; ocupado: boolean } | null;
+  /** #81: a tela "Já usa o nod?" da primeira visita na web, antes do espaço provisório. */
+  primeiro?: { ocupado: boolean; erro: string | null } | null;
 } = { modo: null, recusado: false };
 
 // definido em 2026-09-24 (revisão da interface): a tela principal é o chat; quem esconde o painel do
@@ -3235,6 +3238,17 @@ function renderEntrada(): string {
     ? `<p class="erro" role="alert">Não foi possível entrar com essa conta. Se ela ainda não tem acesso ao nod, peça para ser cadastrada.</p>`
     : "";
   if (!m) return `<section class="tela entrar"><h1>nod</h1><p class="mudo">carregando…</p></section>`;
+  if (entrada.primeiro && m.contas) {
+    const p = entrada.primeiro;
+    return htmlEntrarPrimeiro({
+      google: m.contas.google,
+      codigoPorEmail: m.contas.onboardingTexto === true,
+      equipe: linkDaEquipe({ loginGoogle: m.modo === "google", contaGoogle: m.contas.google, noApp: false, url: sessaoApi.urlGoogle }),
+      formEmailSenha: htmlEntradaConta(),
+      ocupado: p.ocupado,
+      erro: p.erro,
+    });
+  }
   if (m.modo === "google") {
     // NOD-345: com contas, quem não é da equipe entra com o e-mail (o Google da equipe continua aqui).
     return `<section class="tela entrar"><h1>nod</h1><p>Entre com a sua conta Google.</p>${doMac}${recusa}<a class="bt pri" href="${esc(sessaoApi.urlGoogle)}">Entrar com Google</a>${m.contas ? htmlEntradaConta() : ""}</section>`;
@@ -3689,7 +3703,13 @@ async function boot(): Promise<void> {
         // tela, sem executor. Sessão do app que caiu volta à tela de entrar.
         // NOD-406: a volta recusada do Google da equipe fica na tela de entrada, com o motivo, sem abrir um provisório.
         // A marca da equipe: quem já entrou pelo Google da equipe neste navegador volta à tela de entrar.
-        if (abreProvisorio({ saiu, recusado: entrada.recusado, bootstrap: modo.contas?.bootstrap ?? false, noApp: window.nodDesktop !== undefined, equipe: daEquipe(), pareando: pedidoPendente() !== null || codigoDeMaquinaPendente() }) && (await provisorioDaWeb())) {
+        const abre = abreProvisorio({ saiu, recusado: entrada.recusado, bootstrap: modo.contas?.bootstrap ?? false, noApp: window.nodDesktop !== undefined, equipe: daEquipe(), pareando: pedidoPendente() !== null || codigoDeMaquinaPendente() });
+        // #81: na primeira visita deste navegador, pergunta "Já usa o nod?" antes de abrir um espaço provisório novo.
+        if (mostrarEntrarPrimeiro({ abreProvisorio: abre, temVerificador: temVerificador() })) {
+          entrada = { ...entrada, primeiro: { ocupado: false, erro: null } };
+          return render();
+        }
+        if (abre && (await provisorioDaWeb())) {
           await iniciarSessao(await sessaoApi.atual());
           // O link da tarefa também vale na primeira visita, no espaço provisório (revisão do PR #623).
           void abrirTarefaGuardada(); abrirQuadroGuardado();
@@ -3706,6 +3726,43 @@ async function boot(): Promise<void> {
 
 /** NOD-345: o verificador desta instalação na web (aleatório, guardado; perder = um espaço novo, o antigo fica). */
 const CHAVE_VERIFICADOR = "nod-instalacao";
+function temVerificador(): boolean {
+  try { return /^[A-Za-z0-9_-]{32,128}$/.test(window.localStorage.getItem(CHAVE_VERIFICADOR) ?? ""); } catch { return false; }
+}
+
+/**
+ * #81: a escolha na tela "Já usa o nod?". Google, código por e-mail e pareamento pedem sessão (exigirSessao no servidor):
+ * abre o espaço provisório, tira o onboarding da frente e segue para o passo escolhido. "Começar sem conta" é o de antes.
+ */
+async function seguirEntrarPrimeiro(i: IntencaoEntrada): Promise<void> {
+  if (!entrada.primeiro || entrada.primeiro.ocupado) return;
+  entrada = { ...entrada, primeiro: { ocupado: true, erro: null } };
+  render();
+  if (!(await provisorioDaWeb())) {
+    const erro = entrada.conta?.erro === LIMITE_PROVISORIO ? LIMITE_PROVISORIO : "Não deu para falar com o nod agora. Tente de novo.";
+    entrada = { ...entrada, primeiro: { ocupado: false, erro } };
+    return render();
+  }
+  entrada = { ...entrada, primeiro: null };
+  try {
+    await iniciarSessao(await sessaoApi.atual());
+    void abrirTarefaGuardada(); abrirQuadroGuardado();
+    await lerContas(null);
+    if (i === "sem-conta") return;
+    // O onboarding do espaço provisório abriria por cima do cartão: lido agora, ele resolve (abre uma vez) e fecha aqui.
+    if (estado.onboarding === undefined && api) dispatch({ tipo: "hidratar-onboarding", onboarding: await api.onboarding().catch(() => null) });
+    dispatch({ tipo: "onboarding-aberto", aberto: false });
+    const etapa = etapaDaIntencao(i);
+    if (etapa) return void (await telaConta.abrir(etapa, true));
+    try {
+      window.location.assign((await contaApi.google(false)).url);
+    } catch {
+      await telaConta.abrir("inicio", true);
+    }
+  } catch (e) {
+    mostrarErroDoBoot(e);
+  }
+}
 async function provisorioDaWeb(): Promise<boolean> {
   let v: string | null = null;
   try { v = window.localStorage.getItem(CHAVE_VERIFICADOR); } catch { /* sem storage: um verificador por visita */ }
@@ -5642,6 +5699,7 @@ const ACOES: Record<string, (el: HTMLElement) => Promise<void> | void> = {
   }),
   ...(telaMinhaConta.acoes as Record<string, (el: HTMLElement) => Promise<void> | void>),
   "conta-abrir": (el) => { try { marcarFalou(window.localStorage); } catch { /* sem storage */ } return telaConta.acoes["conta-abrir"]?.(el); },
+  "entrada-primeiro": (el) => { const i = intencaoDe(el.dataset.intencao); if (i) void seguirEntrarPrimeiro(i); },
   "entrada-ir": (el) => { entrada = { ...entrada, conta: { etapa: el.dataset.etapa === "recuperar" ? "recuperar" : "entrar", erro: null, enviadoPara: null, ocupado: false }, redefinir: null }; render(); },
   // NOD-345: "Mostrar" a senha troca o tipo do campo ali mesmo (o valor nunca sai do DOM).
   "conta-mostrar": (el) => {
