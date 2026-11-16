@@ -80,6 +80,7 @@ import { contaApi, criarApi, minhaContaApi, ErroApi, observarRede, sessao as ses
 import { reagirACota } from "./lib/cota-provisorio.ts";
 import { resolverProvaNoNavegador } from "./lib/prova-trabalho.ts";
 import { abreProvisorio, CHAVE_EQUIPE, decidirPareamento, criarContaNoChat, equipeNoApp, fraseDoErro as fraseDoErroDeConta, linkDaEquipe, type PassoPareamento } from "./telas/conta-no-chat.ts";
+import { CHAVE_PAREAR_CONTA, codigoDoFragmento } from "./telas/parear-qr.ts";
 import { criarMinhaConta } from "./telas/minha-conta.ts";
 import { reduzirFoto } from "./lib/reduzir-foto.ts";
 import { deveLembrar, htmlLembrete, jaFalou, marcarFalou } from "./telas/lembrete-conta.ts";
@@ -1061,6 +1062,8 @@ const telaConta = criarContaNoChat({
   contaMudou: (e) => { contaAtual = e; render(); if (decidirPareamento({ modoLido: true, contas: true, estado: e }) === "abrir") seguirPareamento("abrir"); },
   abrirUrl: (url) => { if (window.nodDesktop) window.open(url, "_blank", "noopener"); else window.location.assign(url); },
   agora: () => Date.now(),
+  // #84: o link do QR do pareamento sai do endereço onde este nod está aberto (no app, o do servidor).
+  origem: () => window.location.origin,
   digitado: () => [...document.querySelectorAll<HTMLInputElement>(".cc-bloco form input")].some((i) => i.value !== ""),
   campo: (form, nome) => String(new FormData(form as HTMLFormElement).get(nome) ?? ""),
 });
@@ -3625,6 +3628,14 @@ async function boot(): Promise<void> {
     url.searchParams.delete("parear-maquina");
     window.history.replaceState(null, "", url.pathname + url.search + url.hash);
   }
+  // #84: o link do QR do pareamento (`/#parear=<6 números>`). O código sai da URL na hora (não fica no histórico) e espera
+  // a sessão na sessionStorage da aba: a da pessoa, ou o espaço provisório da primeira visita do celular.
+  if (window.location.hash.startsWith("#parear=")) {
+    const codigo = codigoDoFragmento(window.location.hash);
+    if (codigo) { try { window.sessionStorage.setItem(CHAVE_PAREAR_CONTA, codigo); } catch { /* sem storage: a pessoa digita o código */ } }
+    url.hash = "";
+    window.history.replaceState(null, "", url.pathname + url.search);
+  }
   // NOD-455: o link direto /quadros/:qid (no recarregar e no celular) abre o quadro compartilhado depois da sessão.
   const quadroNaUrl = quadroDaUrl(url.pathname);
   if (quadroNaUrl) { try { window.sessionStorage.setItem(CHAVE_QUADRO_LINK, quadroNaUrl); } catch { /* sem storage: o link não abre */ } }
@@ -3676,6 +3687,7 @@ async function boot(): Promise<void> {
     abrirVoltaDaNuvemGuardada();
     void abrirTarefaGuardada(); abrirQuadroGuardado();
     await lerContas(voltaDaConta);
+    await abrirParearGuardado();
     if (confirmando) { await confirmando; if (contas?.minhaConta) abrirEspaco("conta"); }
   } catch (e) {
     if (e instanceof ErroApi && e.status === 401) {
@@ -3694,6 +3706,7 @@ async function boot(): Promise<void> {
           // O link da tarefa também vale na primeira visita, no espaço provisório (revisão do PR #623).
           void abrirTarefaGuardada(); abrirQuadroGuardado();
           await lerContas(voltaDaConta);
+          await abrirParearGuardado();
           return;
         }
         render();
@@ -3702,6 +3715,20 @@ async function boot(): Promise<void> {
       }
     } else mostrarErroDoBoot(e);
   }
+}
+
+/**
+ * #84: o código do QR guardado no boot. Com a sessão aberta (a da pessoa ou o espaço provisório, que o pedido exige),
+ * tira o onboarding da frente e manda o pedido: o celular mostra os símbolos e o computador confirma.
+ */
+async function abrirParearGuardado(): Promise<void> {
+  let codigo: string | null = null;
+  try { codigo = window.sessionStorage.getItem(CHAVE_PAREAR_CONTA); window.sessionStorage.removeItem(CHAVE_PAREAR_CONTA); } catch { return; }
+  if (!codigo || !/^\d{6}$/.test(codigo)) return;
+  // O onboarding do espaço provisório abriria por cima do cartão: lido agora, ele resolve (abre uma vez) e fecha aqui.
+  if (estado.onboarding === undefined && api) dispatch({ tipo: "hidratar-onboarding", onboarding: await api.onboarding().catch(() => null) });
+  dispatch({ tipo: "onboarding-aberto", aberto: false });
+  await telaConta.entrarComCodigo(codigo);
 }
 
 /** NOD-345: o verificador desta instalação na web (aleatório, guardado; perder = um espaço novo, o antigo fica). */

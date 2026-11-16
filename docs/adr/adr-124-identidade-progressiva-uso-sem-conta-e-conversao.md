@@ -112,6 +112,25 @@ recusada do Google mostra o motivo e tira a marca. Valem os gatilhos de reversã
 dias); além deles, qualquer abuso de bootstrap visível no gasto do dia. Reverter é `NOD_BOOTSTRAP` vazio no
 `config.env` e o deploy (as contas já criadas seguem entrando).
 
+### Emenda de 2026-11-16 (#84): o pareamento também vai por QR code
+
+O cartão "Conectar outro computador" passa a se chamar "Conectar celular ou outro computador". Junto do código de 6
+números, ele mostra um QR com o link `<endereço do nod>/#parear=<código>`. No celular, a câmera abre o link; a web tira o
+código da URL na hora, cria o espaço provisório se for a primeira visita (§2) e manda o código sozinha pelo mesmo
+`POST /parear/pedir`. O computador confirma pelos símbolos, como no código digitado, e a sessão do celular passa para a
+conta do computador, mesmo que o celular estivesse noutra conta.
+
+- O servidor não muda: o QR é só outro jeito de digitar o mesmo código (5 minutos, uso único, confirmação no
+  computador, os mesmos limites de tentativa).
+- O código vai no fragmento (`#`), que o navegador não manda ao servidor: não entra em log de acesso nem no `Referer`.
+- O QR é gerado na própria web (`web/lib/qr.ts`: modo byte, correção M, versões 1 a 10), sem dependência nova
+  (ADR-020, ADR-149).
+- Sem endereço que o celular alcance (`localhost`, `127.x`, arquivo local), o cartão fica como antes, só com o código.
+
+**Gatilho de reversão:** se pareamentos pedidos pelo link do QR forem recusados ou vencerem mais que os digitados, ou
+se aparecer abuso do link (pedidos de pareamento de fora vindos dele), tirar o QR do cartão e voltar ao código
+digitado; o servidor não precisa de mudança para isso.
+
 ## Impacto nas decisões anteriores
 
 - **ADR-030:** deixa de valer a regra “login só consulta pessoa admitida”. A allowlist e a admissão por domínio ficam

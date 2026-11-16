@@ -15,6 +15,9 @@
 .cc-mostrar { border: 0; background: none; color: var(--ink-2); font: inherit; font-size: 13px; padding: 8px; border-radius: 8px; cursor: pointer; }
 .cc-mostrar:hover { background: var(--surface-raised); color: var(--ink); }
 .cc-codigo { font-family: var(--font-mono); font-size: 22px; letter-spacing: .3em; text-align: center; }
+/* #84: o QR do pareamento, sempre preto no branco (a câmera não lê o invertido do tema escuro). */
+.cc-qr { display: flex; justify-content: center; margin: 4px 0 8px; }
+.cc-qr .qr { width: 184px; height: 184px; border-radius: 8px; }
 .cc-codigo-grande { margin: 4px 0; font-family: var(--font-mono); font-size: 36px; font-weight: 600; letter-spacing: .18em; text-align: center; color: var(--ink); }
 .cc-simbolos { margin: 4px 0; display: flex; justify-content: center; gap: 18px; font-size: 34px; }
 .cc-acoes { display: flex; justify-content: flex-end; align-items: center; gap: 8px; flex-wrap: wrap; }

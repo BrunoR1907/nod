@@ -4,6 +4,7 @@ import type { PonteGoogleConta, ResultadoGoogleConta } from "../../src/contracts
 import { AppDesatualizado, ErroApi } from "../lib/erro-api.ts";
 import { esc } from "../lib/render.ts";
 import { nesteAparelho } from "../lib/aparelho.ts";
+import { htmlQrDoPareamento, urlDoPareamento } from "./parear-qr.ts";
 
 /**
  * NOD-345 (ADR-124, protótipo aprovado do Gil): criar conta, entrar, levar o espaço, recuperar a senha, ver as sessões e
@@ -66,7 +67,7 @@ export type Etapa =
  * pelo Google e o Google para conta está desligado. Com o espaço provisório ligado, quem é da equipe e abre um navegador
  * novo cai no provisório: sem este link, a única porta seria o e-mail, que a pessoa de time não tem. Ausente = nada.
  */
-export type VistaConta = { etapa: Etapa | null; ocupado: boolean; resolvidas: readonly string[]; google: boolean; agora: number; equipe?: string | null; texto?: boolean };
+export type VistaConta = { etapa: Etapa | null; ocupado: boolean; resolvidas: readonly string[]; google: boolean; agora: number; equipe?: string | null; texto?: boolean; origem?: string | null };
 
 const SELO = `<span class="cc-selo">Conta no nod</span>`;
 const SIMBOLO: Record<string, string> = { sol: "☀️", lua: "🌙", estrela: "⭐", folha: "🍃", onda: "🌊", montanha: "⛰️", chave: "🔑", barco: "⛵", flor: "🌸", nuvem: "☁️", raio: "⚡", peixe: "🐟" };
@@ -102,7 +103,7 @@ function linhaSessao(s: SessaoContaDto, atual: string, agora: number): string {
 const simbolos = (lista: readonly string[]) => `<p class="cc-simbolos" aria-label="${esc(lista.join(", "))}">${lista.map((s) => `<span title="${esc(s)}">${SIMBOLO[s] ?? esc(s)}</span>`).join("")}</p>`;
 
 /** O cartão ativo. Puro: a vista entra, o HTML sai (os testes leem isto). */
-export function htmlEtapa(e: Etapa, v: { ocupado: boolean; google: boolean; agora: number; equipe?: string | null; texto?: boolean }): string {
+export function htmlEtapa(e: Etapa, v: { ocupado: boolean; google: boolean; agora: number; equipe?: string | null; texto?: boolean; origem?: string | null }): string {
   const o = v.ocupado;
   // `bt`: o mesmo alvo de toque dos outros links do rodapé (44 px no celular, ADR-094).
   const equipe = v.equipe ? `<a class="bt cc-link" href="${esc(v.equipe)}">Sou da equipe: entrar com Google</a>` : "";
@@ -201,14 +202,21 @@ export function htmlEtapa(e: Etapa, v: { ocupado: boolean; google: boolean; agor
         );
       }
       const seg = Math.max(0, Math.round((e.expiraEm - v.agora) / 1000));
+      // #84: com um endereço que o celular alcança, o QR leva o mesmo código no link; o código digitado continua valendo.
+      const qr = htmlQrDoPareamento(v.origem ?? null, e.codigo);
+      const como = qr
+        ? `<p class="cc-texto">No celular, aponte a câmera para o QR code:</p>${qr}<p class="cc-texto">Ou, no outro computador, abra o nod, toque em <b>Tenho um código</b> e digite:</p>`
+        : `<p class="cc-texto">No outro computador, abra o nod e toque em <b>Tenho um código</b>. Digite:</p>`;
       return cartao(
-        "Conectar outro computador",
-        `<p class="cc-texto">No outro computador, abra o nod e toque em <b>Tenho um código</b>. Digite:</p><p class="cc-codigo-grande" aria-label="${esc(e.codigo.split("").join(" "))}">${esc(e.codigo.slice(0, 3))} ${esc(e.codigo.slice(3))}</p><p class="cc-dica">Vale por 5 minutos (${Math.floor(seg / 60)}:${String(seg % 60).padStart(2, "0")}) e uma vez só. Gerar outro invalida este.</p>
+        qr ? "Conectar celular ou outro computador" : "Conectar outro computador",
+        `${como}<p class="cc-codigo-grande" aria-label="${esc(e.codigo.split("").join(" "))}">${esc(e.codigo.slice(0, 3))} ${esc(e.codigo.slice(3))}</p><p class="cc-dica">Vale por 5 minutos (${Math.floor(seg / 60)}:${String(seg % 60).padStart(2, "0")}) e uma vez só. Gerar outro invalida este.</p>
         <div class="cc-acoes">${bt("conta-fechar", "Cancelar", { classe: "cc-link" })}</div>`,
       );
     }
     case "parear-pronto":
-      return cartao("Conectar outro computador", `<p class="cc-texto">Gere um código aqui e digite no outro computador, em <b>Tenho um código</b>. Ele vale por 5 minutos e uma vez só.</p><div class="cc-acoes">${bt("conta-fechar", "Cancelar", { classe: "cc-link" })}${bt("conta-parear-gerar", "Gerar código", { classe: "pri", ocupado: o })}</div>`);
+      return urlDoPareamento(v.origem ?? null, "000000")
+        ? cartao("Conectar celular ou outro computador", `<p class="cc-texto">Gere um código aqui. No celular, é só apontar a câmera para o QR code; no outro computador, digite o código em <b>Tenho um código</b>. Ele vale por 5 minutos e uma vez só.</p><div class="cc-acoes">${bt("conta-fechar", "Cancelar", { classe: "cc-link" })}${bt("conta-parear-gerar", "Gerar código", { classe: "pri", ocupado: o })}</div>`)
+        : cartao("Conectar outro computador", `<p class="cc-texto">Gere um código aqui e digite no outro computador, em <b>Tenho um código</b>. Ele vale por 5 minutos e uma vez só.</p><div class="cc-acoes">${bt("conta-fechar", "Cancelar", { classe: "cc-link" })}${bt("conta-parear-gerar", "Gerar código", { classe: "pri", ocupado: o })}</div>`);
     case "parear-entrar":
       return e.simbolos
         ? cartao("Confirme no outro computador", `<p class="cc-texto">Lá vai aparecer um pedido com estes símbolos. Confira e toque em <b>Sim, conectar</b>.</p>${simbolos(e.simbolos)}<p class="cc-dica" role="status">Esperando a confirmação…</p><div class="cc-acoes">${bt("conta-fechar", "Cancelar", { classe: "cc-link" })}</div>`)
@@ -320,6 +328,8 @@ export type DepsConta = {
   intervalo?: (fn: () => void, ms: number) => () => void;
   /** Lê um campo do formulário (na página, FormData; nos testes, um falso). */
   campo: (form: Formulario, nome: string) => string;
+  /** #84: o endereço onde este nod está aberto (o link do QR do pareamento); ausente ou null = só o código digitado. */
+  origem?: () => string | null;
   /** NOD-351: a pessoa já escreveu algo num campo do cartão de conta aberto? Ausente = não. */
   digitado?: () => boolean;
   /** ADA-242 (NOD_ONBOARDING_TEXTO): "Usar e-mail" pede só o código, sem senha. Ausente = como antes. */
@@ -662,8 +672,12 @@ export function criarContaNoChat(deps: DepsConta) {
         mudar(r.resultado === "trocada" ? { tipo: "senha", erro: null, salva: r.encerradas } : { tipo: "senha", erro: "A senha atual não confere.", salva: null });
       }, (erro) => mudar({ tipo: "senha", erro, salva: null }));
     }),
-    "conta-parear-pedir": (form) => trabalhar(async () => {
-      const codigo = campo(form, "codigo");
+    "conta-parear-pedir": (form) => pedirCodigo(campo(form, "codigo")),
+  };
+
+  /** No computador (ou celular) novo: manda o código e espera a confirmação no que já está na conta. */
+  function pedirCodigo(codigo: string): Promise<void> {
+    return trabalhar(async () => {
       await comErro(async () => {
         const r = await deps.api().pedirPareamento(codigo);
         if (r.resultado === "invalido") return mudar({ tipo: "parear-entrar", simbolos: null, erro: "Esse código não vale. Gere outro no computador onde você já entrou." });
@@ -679,8 +693,8 @@ export function criarContaNoChat(deps: DepsConta) {
           return true;
         });
       }, (erro) => mudar({ tipo: "parear-entrar", simbolos: null, erro }));
-    }),
-  };
+    });
+  }
 
   return {
     /** O bloco ao vivo desta conversa (vazio fora dela). */
@@ -688,10 +702,15 @@ export function criarContaNoChat(deps: DepsConta) {
       // O estado pode chegar antes da frota (boot): o cartão pendente se liga à conversa do Nod quando ela existir.
       if ((etapa || resolvidas.length) && !conversaId) conversaId = deps.conversaDoNod()?.conversaId ?? deps.conversaDaTela();
       if (id !== conversaId) return "";
-      return htmlBlocoConta({ etapa, ocupado, resolvidas, google: deps.google(), agora: deps.agora(), equipe: deps.equipe?.() ?? null, texto: (deps.texto?.() ?? false) && !!deps.api().codigo });
+      return htmlBlocoConta({ etapa, ocupado, resolvidas, google: deps.google(), agora: deps.agora(), equipe: deps.equipe?.() ?? null, texto: (deps.texto?.() ?? false) && !!deps.api().codigo, origem: deps.origem?.() ?? null });
     },
     abrir,
     abrirPeloChat,
+    /** #84: o código que veio no link do QR: abre "Entrar com código" (na conversa do Nod) e manda sozinho. */
+    async entrarComCodigo(codigo: string): Promise<void> {
+      await abrir("parear-entrar");
+      await pedirCodigo(codigo);
+    },
     retomar,
     /** A volta do Google (`?conta=`): o que o servidor fez vira a linha ou o cartão certo. */
     async aoVoltarDoGoogle(r: string): Promise<void> {
