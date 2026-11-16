@@ -116,9 +116,15 @@ dias); além deles, qualquer abuso de bootstrap visível no gasto do dia. Revert
 
 O cartão "Conectar outro computador" passa a se chamar "Conectar celular ou outro computador". Junto do código de 6
 números, ele mostra um QR com o link `<endereço do nod>/#parear=<código>`. No celular, a câmera abre o link; a web tira o
-código da URL na hora, cria o espaço provisório se for a primeira visita (§2) e manda o código sozinha pelo mesmo
-`POST /parear/pedir`. O computador confirma pelos símbolos, como no código digitado, e a sessão do celular passa para a
-conta do computador, mesmo que o celular estivesse noutra conta.
+código da URL na hora, cria o espaço provisório se for a primeira visita (§2) e mostra o código com a pergunta
+"Conectar a esta conta?". Só o clique em "Conectar a esta conta" manda o código, pelo mesmo `POST /parear/pedir`;
+"Cancelar" fecha sem mandar nada. O computador confirma pelos símbolos, como no código digitado, e a sessão do celular
+passa para a conta do computador, mesmo que o celular estivesse noutra conta.
+
+- A confirmação no celular é obrigatória (revisão do PR #85). Sem ela, um link `#parear=` mandado por outra pessoa, que
+  confirma o pedido no próprio computador, trocaria a sessão do aparelho para a conta dela sem a pessoa perceber (CSRF
+  de login). Os símbolos só existem depois do POST (o servidor os sorteia nele), então antes do clique o que se confere
+  é o próprio código, o mesmo que aparece na tela do computador; o cartão avisa que o aparelho sai da conta em que está.
 
 - O servidor não muda: o QR é só outro jeito de digitar o mesmo código (5 minutos, uso único, confirmação no
   computador, os mesmos limites de tentativa).

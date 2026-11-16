@@ -56,6 +56,8 @@ export type Etapa =
   | { tipo: "parear-pronto" }
   | { tipo: "parear-gerar"; codigo: string; expiraEm: number; pedido: { aparelho: string; simbolos: string[] } | null; vencido: boolean }
   | { tipo: "parear-entrar"; simbolos: string[] | null; erro: string | null }
+  /** #84 (revisão do PR #85): o código que chegou pelo link do QR espera o "Conectar a esta conta"; nada foi enviado. */
+  | { tipo: "parear-confirmar"; codigo: string }
   | { tipo: "google-app" }
   /** ADA-242: só o e-mail (sem senha); o código que chega conclui. */
   | { tipo: "email"; erro: string | null }
@@ -217,6 +219,15 @@ export function htmlEtapa(e: Etapa, v: { ocupado: boolean; google: boolean; agor
       return urlDoPareamento(v.origem ?? null, "000000")
         ? cartao("Conectar celular ou outro computador", `<p class="cc-texto">Gere um código aqui. No celular, é só apontar a câmera para o QR code; no outro computador, digite o código em <b>Tenho um código</b>. Ele vale por 5 minutos e uma vez só.</p><div class="cc-acoes">${bt("conta-fechar", "Cancelar", { classe: "cc-link" })}${bt("conta-parear-gerar", "Gerar código", { classe: "pri", ocupado: o })}</div>`)
         : cartao("Conectar outro computador", `<p class="cc-texto">Gere um código aqui e digite no outro computador, em <b>Tenho um código</b>. Ele vale por 5 minutos e uma vez só.</p><div class="cc-acoes">${bt("conta-fechar", "Cancelar", { classe: "cc-link" })}${bt("conta-parear-gerar", "Gerar código", { classe: "pri", ocupado: o })}</div>`);
+    case "parear-confirmar":
+      // #84 (revisão do PR #85): sem este clique, o link sozinho trocaria a sessão deste aparelho para a conta de quem
+      // gerou o código (CSRF de login). Os símbolos só existem depois do pedido (o servidor os sorteia no POST); antes
+      // dele, o que dá para conferir é o próprio código, que está na tela do computador da conta.
+      return cartao(
+        "Conectar a esta conta?",
+        `<p class="cc-texto">Este link pede para conectar este aparelho à conta do computador que mostra este código:</p><p class="cc-codigo-grande" aria-label="${esc(e.codigo.split("").join(" "))}">${esc(e.codigo.slice(0, 3))} ${esc(e.codigo.slice(3))}</p><p class="cc-texto">Continue só se esse código está agora na tela de um computador seu. Se este aparelho já está numa conta, ele sai dela e passa para a conta desse computador.</p><p class="cc-dica">Não reconhece o código? Cancele: nada é enviado.</p>
+        <div class="cc-acoes">${bt("conta-fechar", "Cancelar", { classe: "cc-link", ocupado: o })}${bt("conta-parear-confirmar", "Conectar a esta conta", { classe: "pri", ocupado: o })}</div>`,
+      );
     case "parear-entrar":
       return e.simbolos
         ? cartao("Confirme no outro computador", `<p class="cc-texto">Lá vai aparecer um pedido com estes símbolos. Confira e toque em <b>Sim, conectar</b>.</p>${simbolos(e.simbolos)}<p class="cc-dica" role="status">Esperando a confirmação…</p><div class="cc-acoes">${bt("conta-fechar", "Cancelar", { classe: "cc-link" })}</div>`)
@@ -569,6 +580,8 @@ export function criarContaNoChat(deps: DepsConta) {
       }
     }),
     "conta-parear-gerar": () => gerarPareamento(),
+    // #84 (revisão do PR #85): só aqui o código do link do QR sai do aparelho.
+    "conta-parear-confirmar": () => (etapa?.tipo === "parear-confirmar" ? pedirCodigo(etapa.codigo) : undefined),
     "conta-parear-decidir": (el) => trabalhar(async () => {
       const confirmar = el.dataset.confirmar === "sim";
       try {
@@ -706,10 +719,14 @@ export function criarContaNoChat(deps: DepsConta) {
     },
     abrir,
     abrirPeloChat,
-    /** #84: o código que veio no link do QR: abre "Entrar com código" (na conversa do Nod) e manda sozinho. */
-    async entrarComCodigo(codigo: string): Promise<void> {
+    /**
+     * #84: o código que veio no link do QR abre, na conversa do Nod, a confirmação "Conectar a esta conta". Não manda
+     * nada: o pedido só sai no clique (revisão do PR #85, CSRF de login). Código fora do formato não abre nada.
+     */
+    async confirmarCodigoDoLink(codigo: string): Promise<void> {
+      if (!/^\d{6}$/.test(codigo)) return;
       await abrir("parear-entrar");
-      await pedirCodigo(codigo);
+      mudar({ tipo: "parear-confirmar", codigo });
     },
     retomar,
     /** A volta do Google (`?conta=`): o que o servidor fez vira a linha ou o cartão certo. */

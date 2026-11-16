@@ -1,11 +1,13 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import { correcaoReedSolomon, matrizQr, svgQr, type MatrizQr } from "../../../web/lib/qr.ts";
 import { criarContaNoChat, htmlEtapa, type ApiConta } from "../../../web/telas/conta-no-chat.ts";
-import { codigoDoFragmento, htmlQrDoPareamento, urlDoPareamento } from "../../../web/telas/parear-qr.ts";
+import { abrirCodigoGuardado, CHAVE_PAREAR_CONTA, codigoDoFragmento, guardarCodigoDoLink, htmlQrDoPareamento, urlDoPareamento } from "../../../web/telas/parear-qr.ts";
 
 /**
  * #84: conectar o celular pelo QR. O computador da conta mostra o QR com `<endereço>/#parear=<código>`; o celular abre o
- * link e manda o mesmo código de 6 números do pareamento (ADR-124), sem nada novo no servidor. O gerador de QR também foi
+ * link e, depois de "Conectar a esta conta", manda o mesmo código de 6 números do pareamento (ADR-124), sem nada
+ * novo no servidor. O gerador de QR também foi
  * conferido fora daqui com um leitor de verdade (OpenCV): 78 textos, versões 1 a 10, as 8 máscaras.
  */
 
@@ -123,34 +125,170 @@ describe("o cartão do pareamento no computador da conta", () => {
   });
 });
 
-describe("o celular que abriu o link", () => {
-  it("abre 'Entrar com código' na conversa do Nod, manda o código sozinho e mostra os símbolos para conferir", async () => {
-    const pedirPareamento = vi.fn(async () => ({ resultado: "pedido" as const, simbolos: ["sol", "lua", "flor"] }));
-    const irParaConversa = vi.fn();
-    const ticks: (() => void)[] = [];
-    const c = criarContaNoChat({
-      api: () => ({ pedirPareamento }) as unknown as ApiConta, conversaDoNod: () => ({ conversaId: "conv-nod", agenteId: "nod" }), conversaDaTela: () => null,
-      irParaConversa, aoMudar: () => undefined, google: () => false, noApp: () => false, entrou: async () => undefined,
-      contaMudou: () => undefined, abrirUrl: () => undefined, agora: () => 1_000, intervalo: (fn) => { ticks.push(fn); return () => undefined; }, campo: () => "",
-    });
-    await c.entrarComCodigo("123456");
-    expect(irParaConversa).toHaveBeenCalledWith("conv-nod", "nod");
-    expect(pedirPareamento).toHaveBeenCalledWith("123456");
-    const h = c.blocoNaConversa("conv-nod");
-    expect(h).toContain("Confirme no outro computador");
-    expect(h).toContain("🌸");
-    expect(ticks).toHaveLength(1); // espera a confirmação, como no código digitado
+/**
+ * Revisão do PR #85 (CSRF de login): o link sozinho não pode trocar a sessão do aparelho. Duas contas num servidor falso,
+ * pelo caminho real do boot: fragmento → sessionStorage → sessão aberta → confirmação → (só com o clique) o pedido.
+ */
+function servidorDeDuasContas() {
+  const s = {
+    /** A sessão do celular: começa na conta A. */
+    sessaoDoCelular: "conta-a",
+    /** O código que o computador da conta B gerou e mostra no QR. */
+    codigoDaContaB: "482913",
+    pedidoDoCelular: null as { codigo: string; confirmado: boolean } | null,
+  };
+  const pedirPareamento = vi.fn(async (codigo: string) => {
+    if (codigo !== s.codigoDaContaB) return { resultado: "invalido" as const };
+    s.pedidoDoCelular = { codigo, confirmado: false };
+    return { resultado: "pedido" as const, simbolos: ["sol", "lua", "flor"] };
+  });
+  const esperarPareamento = vi.fn(async () => (s.pedidoDoCelular?.confirmado ? { estado: "entrou" as const, trocaApp: null } : { estado: "esperando" as const }));
+  /** O "Sim, conectar" no computador da conta B. */
+  const computadorBConfirma = () => { if (s.pedidoDoCelular) s.pedidoDoCelular.confirmado = true; };
+  return { s, api: { pedirPareamento, esperarPareamento } as unknown as ApiConta, pedirPareamento, computadorBConfirma };
+}
+
+function janelaFalsa(hash: string) {
+  const guardado = new Map<string, string>();
+  const j = {
+    urlVisivel: `/conversas${hash}`,
+    location: { hash, pathname: "/conversas", search: "" },
+    history: { replaceState: vi.fn((_d: unknown, _t: string, url: string) => { j.location.hash = ""; j.urlVisivel = url; }) },
+    sessionStorage: {
+      getItem: (k: string) => guardado.get(k) ?? null,
+      setItem: (k: string, v: string) => { guardado.set(k, v); },
+      removeItem: (k: string) => { guardado.delete(k); },
+    },
+  };
+  return { j, guardado };
+}
+
+function celular(api: ApiConta, s: { sessaoDoCelular: string }) {
+  const ticks: (() => void)[] = [];
+  const irParaConversa = vi.fn();
+  const entrou = vi.fn(async () => { s.sessaoDoCelular = "conta-b"; });
+  const c = criarContaNoChat({
+    api: () => api, conversaDoNod: () => ({ conversaId: "conv-nod", agenteId: "nod" }), conversaDaTela: () => null,
+    irParaConversa, aoMudar: () => undefined, google: () => false, noApp: () => false, entrou,
+    contaMudou: () => undefined, abrirUrl: () => undefined, agora: () => 1_000,
+    intervalo: (fn) => { ticks.push(fn); return () => { ticks.splice(ticks.indexOf(fn), 1); }; }, campo: () => "",
+  });
+  return { c, ticks, irParaConversa, entrou, bloco: () => c.blocoNaConversa("conv-nod") };
+}
+
+const el = () => ({ dataset: {} });
+const esperar = () => new Promise((r) => setTimeout(r, 0));
+
+/** O boot do celular: guarda o código do link, abre a sessão (aqui, já aberta na conta A) e abre o código guardado. */
+async function bootComLink(hash: string) {
+  const srv = servidorDeDuasContas();
+  const { j, guardado } = janelaFalsa(hash);
+  const tratou = guardarCodigoDoLink(j);
+  const urlDepoisDoGuardar = j.urlVisivel;
+  const guardadoAntesDaSessao = guardado.get(CHAVE_PAREAR_CONTA) ?? null;
+  const cel = celular(srv.api, srv.s);
+  const tirarDaFrente = vi.fn();
+  const abriu = await abrirCodigoGuardado(j, { tirarDaFrente, conta: cel.c });
+  return { ...srv, ...cel, j, guardado, tratou, urlDepoisDoGuardar, guardadoAntesDaSessao, tirarDaFrente, abriu };
+}
+
+describe("o celular que abriu o link (fragmento → sessionStorage → boot, duas contas)", () => {
+  it("o boot tira o código da URL, guarda e abre a confirmação, sem mandar nada: o celular continua na conta A", async () => {
+    const b = await bootComLink("#parear=482913");
+    expect(b.tratou).toBe(true);
+    expect(b.urlDepoisDoGuardar).toBe("/conversas"); // o código não fica na URL nem no histórico
+    expect(b.guardadoAntesDaSessao).toBe("482913");
+    expect(b.guardado.has(CHAVE_PAREAR_CONTA)).toBe(false); // tirado uma vez só: recarregar não reabre
+    expect(b.abriu).toBe(true);
+    expect(b.tirarDaFrente).toHaveBeenCalledOnce();
+    expect(b.irParaConversa).toHaveBeenCalledWith("conv-nod", "nod");
+    const h = b.bloco();
+    expect(h).toContain("Conectar a esta conta?");
+    expect(h).toContain("482 913");
+    expect(h).toContain('data-act="conta-parear-confirmar"');
+    expect(h).toContain("sai dela e passa para a conta desse computador");
+    expect(b.pedirPareamento).not.toHaveBeenCalled();
+    expect(b.ticks).toHaveLength(0); // nem espera pela confirmação: não há pedido
+    expect(b.s.pedidoDoCelular).toBeNull();
+    expect(b.s.sessaoDoCelular).toBe("conta-a");
   });
 
-  it("código que não vale (vencido, usado): a mesma mensagem do código digitado, com o campo para tentar de novo", async () => {
-    const c = criarContaNoChat({
-      api: () => ({ pedirPareamento: async () => ({ resultado: "invalido" as const }) }) as unknown as ApiConta, conversaDoNod: () => ({ conversaId: "conv-nod", agenteId: "nod" }),
-      conversaDaTela: () => null, irParaConversa: () => undefined, aoMudar: () => undefined, google: () => false, noApp: () => false, entrou: async () => undefined,
-      contaMudou: () => undefined, abrirUrl: () => undefined, agora: () => 1_000, intervalo: () => () => undefined, campo: () => "",
-    });
-    await c.entrarComCodigo("123456");
-    const h = c.blocoNaConversa("conv-nod");
+  it("sem o clique, nada sai, nem se a conta B tentar confirmar; Cancelar fecha sem mandar nada", async () => {
+    const b = await bootComLink("#parear=482913");
+    b.computadorBConfirma(); // não há pedido para confirmar
+    for (const t of [...b.ticks]) t();
+    await esperar();
+    expect(b.pedirPareamento).not.toHaveBeenCalled();
+    await b.c.acoes["conta-fechar"]!(el());
+    expect(b.bloco()).not.toContain("Conectar a esta conta?");
+    expect(b.pedirPareamento).not.toHaveBeenCalled();
+    expect(b.entrou).not.toHaveBeenCalled();
+    expect(b.s.sessaoDoCelular).toBe("conta-a");
+  });
+
+  it("com o clique em 'Conectar a esta conta': o pedido sai, os símbolos aparecem e, confirmado na conta B, o celular passa para ela", async () => {
+    const b = await bootComLink("#parear=482913");
+    await b.c.acoes["conta-parear-confirmar"]!(el());
+    expect(b.pedirPareamento).toHaveBeenCalledTimes(1);
+    expect(b.pedirPareamento).toHaveBeenCalledWith("482913");
+    const h = b.bloco();
+    expect(h).toContain("Confirme no outro computador");
+    expect(h).toContain("🌸");
+    expect(b.s.sessaoDoCelular).toBe("conta-a"); // ainda: falta o "Sim, conectar" no computador
+    expect(b.ticks).toHaveLength(1);
+    b.ticks[0]!();
+    await esperar();
+    expect(b.entrou).not.toHaveBeenCalled();
+    b.computadorBConfirma();
+    b.ticks[0]!();
+    await esperar();
+    expect(b.entrou).toHaveBeenCalledOnce();
+    expect(b.s.sessaoDoCelular).toBe("conta-b");
+  });
+
+  it("o clique não manda duas vezes, e a ação fora da confirmação não manda nada", async () => {
+    const srv = servidorDeDuasContas();
+    const cel = celular(srv.api, srv.s);
+    await cel.c.acoes["conta-parear-confirmar"]!(el()); // sem cartão de confirmação aberto
+    expect(srv.pedirPareamento).not.toHaveBeenCalled();
+    await cel.c.confirmarCodigoDoLink("482913");
+    await Promise.all([cel.c.acoes["conta-parear-confirmar"]!(el()), cel.c.acoes["conta-parear-confirmar"]!(el())]);
+    expect(srv.pedirPareamento).toHaveBeenCalledTimes(1);
+  });
+
+  it("código que não vale (vencido, usado): depois do clique, a mesma mensagem do código digitado, com o campo para tentar de novo", async () => {
+    const srv = servidorDeDuasContas();
+    srv.s.codigoDaContaB = "000000";
+    const cel = celular(srv.api, srv.s);
+    await cel.c.confirmarCodigoDoLink("482913");
+    await cel.c.acoes["conta-parear-confirmar"]!(el());
+    const h = cel.bloco();
     expect(h).toContain("Esse código não vale");
     expect(h).toContain('data-form="conta-parear-pedir"');
+    expect(srv.s.sessaoDoCelular).toBe("conta-a");
+  });
+
+  it("fragmento fora do formato: sai da URL, nada é guardado e nada abre", async () => {
+    for (const hash of ["#parear=12345", "#parear=1234567", "#parear=abcdef", "#parear=482913&x=1"]) {
+      const b = await bootComLink(hash);
+      expect(b.tratou).toBe(true);
+      expect(b.urlDepoisDoGuardar).toBe("/conversas");
+      expect(b.guardadoAntesDaSessao).toBeNull();
+      expect(b.abriu).toBe(false);
+      expect(b.tirarDaFrente).not.toHaveBeenCalled();
+      expect(b.bloco()).toBe("");
+    }
+    const outro = janelaFalsa("#conversa=1");
+    expect(guardarCodigoDoLink(outro.j)).toBe(false);
+    expect(outro.j.history.replaceState).not.toHaveBeenCalled();
+  });
+
+  it("o boot do main.ts usa essas peças: guarda antes da sessão e abre a confirmação nos dois ramos (sessão e provisório)", () => {
+    const main = readFileSync(new URL("../../../web/main.ts", import.meta.url), "utf8");
+    expect(main).toContain('if (guardarCodigoDoLink(window)) url.hash = "";');
+    expect(main.indexOf("guardarCodigoDoLink(window)")).toBeLessThan(main.indexOf("await abrirParearGuardado();"));
+    expect(main.match(/await abrirParearGuardado\(\);/g)).toHaveLength(2);
+    expect(main).toMatch(/abrirCodigoGuardado\(window, \{[\s\S]*?conta: telaConta,/);
+    expect(main).not.toContain("entrarComCodigo");
   });
 });
