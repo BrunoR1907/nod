@@ -40,6 +40,14 @@ export function guardarCodigoDoLink(j: JanelaDoLink): boolean {
 }
 
 /**
+ * Se há código do link esperando a sessão. Na primeira visita, ele pula a tela "Já usa o nod?" (#81): quem leu o QR já
+ * disse que quer entrar numa conta, e a confirmação "Conectar a esta conta" vem logo depois do espaço provisório.
+ */
+export function codigoDoLinkGuardado(j: Pick<JanelaDoLink, "sessionStorage">): boolean {
+  try { return /^\d{6}$/.test(j.sessionStorage.getItem(CHAVE_PAREAR_CONTA) ?? ""); } catch { return false; }
+}
+
+/**
  * No boot, com a sessão aberta (a da pessoa ou o espaço provisório da primeira visita): tira o código guardado (uma vez
  * só), fecha o que estiver na frente e abre a confirmação. Não manda o código: isso é do clique em "Conectar a esta conta".
  */

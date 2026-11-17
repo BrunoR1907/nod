@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import { correcaoReedSolomon, matrizQr, svgQr, type MatrizQr } from "../../../web/lib/qr.ts";
 import { criarContaNoChat, htmlEtapa, type ApiConta } from "../../../web/telas/conta-no-chat.ts";
-import { abrirCodigoGuardado, CHAVE_PAREAR_CONTA, codigoDoFragmento, guardarCodigoDoLink, htmlQrDoPareamento, urlDoPareamento } from "../../../web/telas/parear-qr.ts";
+import { abrirCodigoGuardado, CHAVE_PAREAR_CONTA, codigoDoFragmento, codigoDoLinkGuardado, guardarCodigoDoLink, htmlQrDoPareamento, urlDoPareamento } from "../../../web/telas/parear-qr.ts";
 
 /**
  * #84: conectar o celular pelo QR. O computador da conta mostra o QR com `<endereço>/#parear=<código>`; o celular abre o
@@ -193,6 +193,17 @@ async function bootComLink(hash: string) {
 }
 
 describe("o celular que abriu o link (fragmento → sessionStorage → boot, duas contas)", () => {
+  it("com o código do link guardado, a primeira visita pula \"Já usa o nod?\" (#81) e o código fica para a confirmação", () => {
+    const { j } = janelaFalsa("#parear=482913");
+    expect(codigoDoLinkGuardado(j)).toBe(false);
+    guardarCodigoDoLink(j);
+    expect(codigoDoLinkGuardado(j)).toBe(true);
+    expect(j.sessionStorage.getItem(CHAVE_PAREAR_CONTA)).toBe("482913"); // só olha: quem tira é abrirCodigoGuardado
+    const ruim = janelaFalsa("#parear=12a456");
+    guardarCodigoDoLink(ruim.j);
+    expect(codigoDoLinkGuardado(ruim.j)).toBe(false);
+  });
+
   it("o boot tira o código da URL, guarda e abre a confirmação, sem mandar nada: o celular continua na conta A", async () => {
     const b = await bootComLink("#parear=482913");
     expect(b.tratou).toBe(true);
