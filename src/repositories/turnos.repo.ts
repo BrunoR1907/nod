@@ -619,7 +619,7 @@ export function turnosRepo(conn: Conn, escopo: Escopo) {
         )
         select count(*)::int as n from turnos q join cadeia c on c.id = q.id
         where q.tenant_id = ${escopo.tenantId} and q.id <> ${exceto} and q.estado = 'interrompido'
-          and q.motivo_interrupcao::text = any(${MOTIVOS_DE_QUEDA.filter((m) => !QUEDAS_FORA_DO_TETO.includes(m))}::text[])
+          and q.motivo_interrupcao::text = any(${[...MOTIVOS_DE_QUEDA.filter((m) => !QUEDAS_FORA_DO_TETO.includes(m)), "turno_travado"]}::text[])
           and coalesce(q.motivo_falha::text, '') <> all(${[...MOTIVOS_FALHA_SEM_QUEDA]}::text[])
           and coalesce(q.ultimo_sinal_em, q.criado_em) >= ${data(desde)}`;
       return l?.n ?? 0;
@@ -1170,7 +1170,10 @@ export function turnosRepo(conn: Conn, escopo: Escopo) {
      */
     async interromper(id: string, motivo: MotivoInterrupcao, o: { ultimoSinalEm?: number; leaseVencidoEm?: number } = {}): Promise<Turno | null> {
       const [l] = await conn<Linha[]>`
-        update turnos set estado = 'interrompido', motivo_interrupcao = ${motivo},
+        update turnos set estado = 'interrompido', motivo_interrupcao = ${o.leaseVencidoEm === undefined
+          ? conn`${motivo}`
+          : conn`case when parar_solicitado_em is not null and motivo_interrupcao is distinct from 'turno_travado'
+              then 'parado_pela_pessoa'::motivo_interrupcao else ${motivo}::motivo_interrupcao end`},
           ultimo_sinal_em = coalesce(ultimo_sinal_em, ${o.ultimoSinalEm !== undefined ? data(o.ultimoSinalEm) : null}), lease_ate = null
         where tenant_id = ${escopo.tenantId} and owner_id = ${escopo.pessoaId} and id = ${id} and estado in ('pendente', 'despachando')
           ${o.leaseVencidoEm !== undefined ? conn`and (lease_ate is null or lease_ate < ${data(o.leaseVencidoEm)})` : conn``}
@@ -1513,7 +1516,8 @@ export function turnosRepo(conn: Conn, escopo: Escopo) {
     async pedirInterrupcao(ids: readonly string[], agora: number): Promise<number> {
       if (ids.length === 0) return 0;
       const r = await conn`
-        update turnos set parar_solicitado_em = coalesce(parar_solicitado_em, ${data(agora)})
+        update turnos set parar_solicitado_em = coalesce(parar_solicitado_em, ${data(agora)}),
+          motivo_interrupcao = case when motivo_interrupcao = 'turno_travado' then null else motivo_interrupcao end
         where tenant_id = ${escopo.tenantId} and owner_id = ${escopo.pessoaId} and id in ${conn([...ids])} and estado = 'despachando'`;
       return r.count;
     },
@@ -1525,6 +1529,34 @@ export function turnosRepo(conn: Conn, escopo: Escopo) {
         where tenant_id = ${escopo.tenantId} and owner_id = ${escopo.pessoaId} and estado = 'despachando' and lease_ate < ${data(agora)}
         order by criado_em`;
       return linhas.map(paraTurno);
+    },
+
+    /**
+     * NOD-452: turnos da faixa serial dos bastidores que ultrapassaram o teto operacional.
+     * Só conversa sem trabalho; frentes e tarefas têm seus próprios freios. A flag desligada nem chama esta leitura.
+     */
+    async bastidoresAcimaDoTeto(agora: number, tetoMs: number): Promise<Turno[]> {
+      const linhas = await conn<Linha[]>`
+        select ${conn.unsafe(COLUNAS)} from turnos
+        where tenant_id = ${escopo.tenantId} and owner_id = ${escopo.pessoaId}
+          and estado = 'despachando' and bastidores and trabalho_id is null and despachado_em is not null
+          and parar_solicitado_em is null
+          and despachado_em <= ${data(agora - tetoMs)}
+        order by despachado_em, id`;
+      return linhas.map(paraTurno);
+    },
+
+    /**
+     * NOD-452: pede ao executor que pare sem liberar a faixa antes da confirmação. `motivo_interrupcao` guarda a causa
+     * solicitada enquanto o turno ainda está vivo; a entrega ou o lease vencido fazem a transição terminal.
+     */
+    async pedirInterrupcaoPorTeto(id: string, agora: number): Promise<Turno | null> {
+      const [l] = await conn<Linha[]>`
+        update turnos set parar_solicitado_em = ${data(agora)}, motivo_interrupcao = 'turno_travado'
+        where tenant_id = ${escopo.tenantId} and owner_id = ${escopo.pessoaId} and id = ${id}
+          and estado = 'despachando' and bastidores and trabalho_id is null and parar_solicitado_em is null
+        returning ${conn.unsafe(COLUNAS)}`;
+      return l ? paraTurno(l) : null;
     },
 
     async despachandoDaPessoa(): Promise<Turno[]> {
