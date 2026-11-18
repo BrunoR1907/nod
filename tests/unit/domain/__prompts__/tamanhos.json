@@ -1,66 +1,66 @@
 {
   "colega-profundidade-1": {
-    "estavel": 6156,
+    "estavel": 6233,
     "volatil": 1030
   },
   "colega-profundidade-3": {
-    "estavel": 5689,
+    "estavel": 5766,
     "volatil": 1178
   },
   "conversa-automatico": {
-    "estavel": 18481,
+    "estavel": 18558,
     "volatil": 606
   },
   "conversa-automatico-revisor": {
-    "estavel": 19050,
+    "estavel": 19092,
     "volatil": 606
   },
   "conversa-calibracao": {
-    "estavel": 17813,
+    "estavel": 17855,
     "volatil": 606
   },
   "conversa-janela-pequena": {
-    "estavel": 17641,
+    "estavel": 17683,
     "volatil": 606
   },
   "conversa-manual": {
-    "estavel": 17431,
+    "estavel": 17473,
     "volatil": 606
   },
   "conversa-reconfiguracao": {
-    "estavel": 17970,
+    "estavel": 18012,
     "volatil": 606
   },
   "conversa-sobre-mim": {
-    "estavel": 17573,
+    "estavel": 17615,
     "volatil": 606
   },
   "conversa-total": {
-    "estavel": 18406,
+    "estavel": 18448,
     "volatil": 606
   },
   "conversa-whatsapp": {
-    "estavel": 17621,
+    "estavel": 17663,
     "volatil": 606
   },
   "criacao-de-bot": {
-    "estavel": 7610,
+    "estavel": 7652,
     "volatil": 0
   },
   "frente-do-dono": {
-    "estavel": 9555,
+    "estavel": 9597,
     "volatil": 1122
   },
   "nod": {
-    "estavel": 9896,
+    "estavel": 9938,
     "volatil": 0
   },
   "rotina-com-inventario": {
-    "estavel": 9029,
+    "estavel": 9071,
     "volatil": 934
   },
   "segundo-turno": {
-    "estavel": 18406,
+    "estavel": 18448,
     "volatil": 455
   },
   "sem-terminal-computador-fora": {
@@ -68,15 +68,15 @@
     "volatil": 1026
   },
   "task-filha-de-rotina": {
-    "estavel": 5010,
+    "estavel": 5052,
     "volatil": 1029
   },
   "triagem-de-colega": {
-    "estavel": 7380,
+    "estavel": 7457,
     "volatil": 1233
   },
   "triagem-de-rotina": {
-    "estavel": 6604,
+    "estavel": 6646,
     "volatil": 403
   }
 }

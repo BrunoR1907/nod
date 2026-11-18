@@ -121,7 +121,7 @@ describe("montarPromptSistema", () => {
     expect(so).toContain('"nome":"Nina"');
     expect(so).toContain("chame ver_colegas");
     expect(so).toContain("Nunca peça à pessoa para copiar o que um colega faz");
-    expect(so).toContain("só pausa ou reativa quando a pessoa pedir");
+    expect(so).toContain("só pausa, reativa, muda ou exclui quando a pessoa pedir");
     // Sem perguntar/delegar, a linha do trabalho assíncrono não entra: ver_colegas responde na hora.
     expect(so).not.toContain("a resposta chegará em um novo turno");
   });
@@ -387,10 +387,11 @@ describe("NOD-155: o prompt em parte estável e parte volátil (cache por prefix
     // 2026-11-18: orientação semântica como padrão; alternativa visual explícita (+255 caracteres estáveis).
     const digital = (s: string) => createHash("sha256").update([...s.split("\n")].sort().join("\n")).digest("hex");
     // 2026-11-18: atualização deliberada da política do computador (gateway único e confirmação explícita).
+    // 2026-11-18 (issue #166): a linha da rotina de colega inclui mudar e excluir; a do automático cita excluir a rotina de um colega.
     const esperado = {
-      conversa: "1ebe2d3c277c654f2f76bb80567116a8dc8f34e3dfbe7296a0c0dc30e3ac8d9e",
-      rotina: "672eaf5e9e1b350a3df342ed534ac20a12a23193098a90b94ceb86eb16e4752e",
-      delegacao: "663cca6527b32617771b992c49c8d90196b5841fe6b943e55fab1aa894af69a7",
+      conversa: "6e987b20b628debb9054d030070c70debf0506514ec77e3a062f35c4fed6d358",
+      rotina: "867c20fc1a81862f51b0d40f8b372b2ed6990566ceceb979b21074c92b21c8bf",
+      delegacao: "cc410116e56f70a726e13fbf87eca1cc10fcdb2f9d8fdfe764f82583161a70e6",
     };
     const obtido = { conversa: "", rotina: "", delegacao: "" };
     for (const modo of ["conversa", "rotina", "delegacao"] as const) obtido[modo] = digital(montarPromptSistema({ ...base, ...turnoA, profundidade: 1, modo }));
