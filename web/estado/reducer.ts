@@ -1063,7 +1063,7 @@ function reconciliarPelosDonos(estado: Estado, trabalhos: TrabalhosDto, leituraE
     const naFila = new Set(dono.fila.map((p) => p.turnoId));
     const trabalhando = propriaTrabalhando(dono.estado);
     for (const v of Object.values(estado.turnosVivos)) {
-      if (v.conversaId !== conversaId || v.trabalhoId || !confirmadoAntes(v, leituraEm)) continue;
+      if (v.conversaId !== conversaId || v.trabalhoId || !confirmadoAntes(v, leituraEm) || (estado.atividades[conversaId]?.[v.turnoId]?.recebidoEm ?? 0) >= leituraEm) continue;
       // Revisão: o "na fila" fora da fila com o bot trabalhando pode ser o mesmo turno, já despachado (o frame
       // turno_despachado perdido ou ainda a caminho) — fica; e só a origem que a fila lista pode ser desmentida por ela.
       const desmentido = v.estado === "rodando"
@@ -1200,7 +1200,7 @@ function comAtividade(estado: Estado, conversaId: string, turnoId: string, mudar
   // Parte 2 do plano "o pensamento no chat": o cabeçalho do pensamento (com a permanência) acompanha cada mudança.
   const antiga = daConversa[turnoId];
   const nova = mudar(antiga);
-  return { ...estado.atividades, [conversaId]: { ...daConversa, [turnoId]: agora === undefined ? nova : comCabecalho(comFrentesEm(antiga, nova, agora), agora) } };
+  return { ...estado.atividades, [conversaId]: { ...daConversa, [turnoId]: agora === undefined ? nova : { ...comCabecalho(comFrentesEm(antiga, nova, agora), agora), recebidoEm: agora } } };
 }
 
 /**
@@ -1314,6 +1314,19 @@ function motivoDoFrame(v: unknown): MotivoRecomeco | null {
   return ehMotivoRecomeco(v) ? v : null;
 }
 
+/** Definido em 2026-11-18: progresso comprova despacho mesmo se os frames de início se perderam. */
+function confirmarProgresso(e: Estado, f: FrameSse, turnoId: string, conversaId: string, agora: number): Estado["turnosVivos"] {
+  const anterior = e.turnosVivos[turnoId];
+  if (anterior?.estado === "rodando" || (!anterior && !guardaAoVivo(e, conversaId))) return e.turnosVivos;
+  const vivo: TurnoVivo = { ...anterior, turnoId, conversaId, estado: "rodando", executor: anterior?.executor ?? null,
+    machineId: anterior?.machineId ?? null, desde: agora,
+    trabalhoId: texto(f.dados.trabalhoId) ?? texto(f.dados.trabalho_id) ?? anterior?.trabalhoId ?? null,
+    agenteId: texto(f.dados.agenteId) ?? texto(f.dados.agente_id) ?? anterior?.agenteId ?? null,
+    origem: texto(f.dados.origem) ?? anterior?.origem ?? null,
+    vistoEm: agora, ...(bastidoresDoFrame(f.dados) ? { bastidores: true } : {}) };
+  return { ...e.turnosVivos, [turnoId]: vivo };
+}
+
 const POR_FRAME: Record<TipoFrame, Handler> = {
   // definido em 2026-09-29 (0039): a mensagem nova também relê os não lidos (o ponto da barra e o ícone do topo).
   "mensagem.nova": (e, f) => (conv(f) ? invalidar(e, conv(f), "nao-lidos", ...atividadeDoFrame(e, f), ...bibliotecaDoFrame(e, f)) : e),
@@ -1327,8 +1340,9 @@ const POR_FRAME: Record<TipoFrame, Handler> = {
     // Parar — a tela da ligação mostra o que ele faz. O servidor marca o frame com `modo: "ligacao"` (e `origem`).
     if (turnoDeLigacao(f.dados)) return invalidar(e, conv(f));
     // dados.kind distingue "na fila" (turno_criado) de "rodando" (turno_despachado) — pendência L8 §5.
-    const estado = f.dados.kind === "turno_despachado" ? "rodando" : "na_fila";
+    if (e.turnosEncerrados.includes(turnoId) || (!e.turnosVivos[turnoId] && turnoId in e.turnosDesmentidos)) return e;
     const anterior = e.turnosVivos[turnoId];
+    const estado = f.dados.kind === "turno_despachado" || anterior?.estado === "rodando" ? "rodando" : "na_fila";
     const trabalhoId = texto(f.dados.trabalhoId) ?? texto(f.dados.trabalho_id) ?? anterior?.trabalhoId ?? null;
     const vivo: TurnoVivo = { turnoId, conversaId, estado, executor: texto(f.dados.executor) ?? anterior?.executor ?? null, machineId: texto(f.dados.machine_id) ?? anterior?.machineId ?? null, desde: estado === "rodando" && anterior?.estado !== "rodando" ? agora : (anterior?.desde ?? agora), trabalhoId, vistoEm: agora, chegouEm: anterior?.chegouEm ?? agora, origem: texto(f.dados.origem) ?? anterior?.origem ?? null, agenteId: texto(f.dados.agente_id) ?? texto(f.dados.agenteId) ?? anterior?.agenteId ?? null, motivoRecomeco: motivoDoFrame(f.dados.motivo_recomeco) ?? anterior?.motivoRecomeco ?? null, ...(!trabalhoId && (bastidoresDoFrame(f.dados) || anterior?.bastidores) ? { bastidores: true } : {}), ...(typeof f.dados.despachadoEm === "number" ? { despachadoEm: f.dados.despachadoEm } : anterior?.despachadoEm !== undefined ? { despachadoEm: anterior.despachadoEm } : {}), ...(typeof f.dados.criadoEm === "number" ? { criadoEm: f.dados.criadoEm } : anterior?.criadoEm !== undefined ? { criadoEm: anterior.criadoEm } : {}) };
     return invalidar({ ...e, turnosVivos: { ...e.turnosVivos, [turnoId]: vivo } }, conv(f), "trabalhos");
@@ -1339,8 +1353,8 @@ const POR_FRAME: Record<TipoFrame, Handler> = {
     const conversaId = texto(f.dados.conversaId);
     const trecho = typeof f.dados.texto === "string" ? f.dados.texto : "";
     if (!turnoId || !conversaId) return e;
-    const vivo = e.turnosVivos[turnoId];
-    const turnosVivos = vivo && vivo.estado !== "rodando" ? { ...e.turnosVivos, [turnoId]: { ...vivo, estado: "rodando" as const, desde: agora } } : e.turnosVivos;
+    if (e.turnosEncerrados.includes(turnoId) || (!e.turnosVivos[turnoId] && turnoId in e.turnosDesmentidos)) return e;
+    const turnosVivos = confirmarProgresso(e, f, turnoId, conversaId, agora);
     if (!guardaAoVivo(e, conversaId) || deBastidores(e, f.dados, turnoId)) return turnosVivos === e.turnosVivos ? e : { ...e, turnosVivos };
     return { ...e, turnosVivos, atividades: comAtividade(e, conversaId, turnoId, (a) => comTexto(a, trecho), agora) };
   },
@@ -1350,8 +1364,8 @@ const POR_FRAME: Record<TipoFrame, Handler> = {
     const conversaId = texto(f.dados.conversaId);
     if (!turnoId || !conversaId || !guardaAoVivo(e, conversaId)) return e;
     const rotulo = texto(f.dados.rotulo) ?? "Usou uma ferramenta";
-    const vivo = e.turnosVivos[turnoId];
-    const turnosVivos = vivo && vivo.estado !== "rodando" ? { ...e.turnosVivos, [turnoId]: { ...vivo, estado: "rodando" as const, desde: agora } } : e.turnosVivos;
+    if (e.turnosEncerrados.includes(turnoId) || (!e.turnosVivos[turnoId] && turnoId in e.turnosDesmentidos)) return e;
+    const turnosVivos = confirmarProgresso(e, f, turnoId, conversaId, agora);
     if (deBastidores(e, f.dados, turnoId)) return turnosVivos === e.turnosVivos ? e : { ...e, turnosVivos };
     return { ...e, turnosVivos, atividades: comAtividade(e, conversaId, turnoId, (a) => comFerramenta(a, rotulo, emUsoDoFrame(f.dados.emUso), idDaAcao(f.dados.id)), agora) };
   },
@@ -1674,7 +1688,7 @@ export function reduzir(estado: Estado, acao: Acao): Estado {
       // de task (`trabalhoId`) é da tela da task (hidratar-trabalho).
       // Revisão: a resposta sem `turnosEmCurso` (servidor antigo, resposta parcial) não diz que nada roda — não tira nada.
       const naLeitura = new Set(emCurso.map((t) => t.id));
-      const sumiram = leuTurnos ? Object.values(estado.turnosVivos).filter((v) => v.conversaId === conversaId && !v.trabalhoId && !naLeitura.has(v.turnoId) && confirmadoAntes(v, acao.agora)).map((v) => v.turnoId) : [];
+      const sumiram = leuTurnos ? Object.values(estado.turnosVivos).filter((v) => v.conversaId === conversaId && !v.trabalhoId && !naLeitura.has(v.turnoId) && confirmadoAntes(v, acao.agora) && (estado.atividades[conversaId]?.[v.turnoId]?.recebidoEm ?? 0) < acao.agora).map((v) => v.turnoId) : [];
       const semSumidos = semDesmentidos(estado, sumiram, acao.agora);
       const turnosVivos = novos.length === 0 ? semSumidos.turnosVivos : { ...semSumidos.turnosVivos };
       // `chegouEm`: o relógio da web, nunca adiante do `desde` do banco (o relógio da web atrasado faria a fila "pensar").
@@ -1690,7 +1704,8 @@ export function reduzir(estado: Estado, acao: Acao): Estado {
         // Definido em 2026-10-28: e ganha a hora do despacho do servidor (o `turno_despachado` perdido não a deixa faltar até o fim).
         const hora = ja && ja.despachadoEm === undefined && t.estado === "despachando" && t.despachadoEm != null;
         const nasceu = ja && ja.criadoEm === undefined;
-        if (marca || hora || nasceu) { if (promovidos === semSumidos.turnosVivos) promovidos = { ...promovidos }; promovidos[t.id] = { ...ja, ...(marca ? { bastidores: true } : {}), ...(hora ? { despachadoEm: t.despachadoEm as number } : {}), ...(nasceu ? { criadoEm: t.desde } : {}) }; }
+        const despachou = ja && ja.estado === "na_fila" && t.estado === "despachando";
+        if (marca || hora || nasceu || despachou) { if (promovidos === semSumidos.turnosVivos) promovidos = { ...promovidos }; promovidos[t.id] = { ...ja, ...(despachou ? { estado: "rodando" as const, desde: desdeDe(t), vistoEm: acao.agora } : {}), ...(marca ? { bastidores: true } : {}), ...(hora ? { despachadoEm: t.despachadoEm as number } : {}), ...(nasceu ? { criadoEm: t.desde } : {}) }; }
       }
       // O texto em streaming de um turno que já acabou sai; o dos que continuam vivos fica.
       // NOD-402: o turno dos bastidores não guarda atividade (o promovido aqui perde a que tinha).
