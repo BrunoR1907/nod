@@ -20,8 +20,8 @@ const ORDEM = new Map(APPS_MARKETPLACE.map((a, i) => [a.slug, i]));
 /**
  * definido em 2026-09-29 (ADR-057): o slug que vira conector. É o `SLUG` de
  * src/use-cases/registrar-conector.ts e o grupo das rotas `/marketplace/:slug/conectar|verificar`, com
- * o teto de 64 do provedor: toolkit com `_` no slug não cabe num conector, e botão que não conecta não
- * entra na grade.
+ * o teto de 64 do provedor. O `_` do provedor chega aqui já traduzido para `-` (toolkits-composio.ts);
+ * o que ainda não casar não conecta, e botão que não conecta não entra na grade.
  */
 const SLUG_CONECTAVEL = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
@@ -77,6 +77,7 @@ function montar(p: AppDoProvedor, g: AppGerenciado | undefined): AppComLogo {
     categoria: c?.categoria ?? (g ? categoriaEmPortugues(g.categorias) : CATEGORIA_PADRAO),
     // definido em 2026-09-24 ("rotina nasce com o acesso"): o card da rotina escreve o "Não inclui" curado.
     ...(c?.naoIncluiNaLeitura ? { naoIncluiNaLeitura: c.naoIncluiNaLeitura } : {}),
+    ...(c?.orientacaoConexao ? { orientacaoConexao: c.orientacaoConexao } : {}),
     logo: p.logo ?? g?.logo ?? null,
   };
 }
@@ -113,10 +114,10 @@ export function mesclarCatalogo(doProvedor: readonly AppDoProvedor[], gerenciado
 }
 
 /**
- * O piso: a curadoria inteira, sem logo. É o que a tela mostra quando não há chave configurada ou
+ * O piso: a curadoria que não exige confirmação do provedor, sem logo. É o que a tela mostra quando não há chave configurada ou
  * quando a chamada ao provedor falha — catálogo velho é melhor que grade vazia, e a curadoria é a
  * única lista que não depende de rede.
  */
 export function catalogoDoPiso(): AppComLogo[] {
-  return APPS_MARKETPLACE.map((a) => ({ ...a, logo: null }));
+  return APPS_MARKETPLACE.filter((a) => !a.exigeProvedor).map((a) => ({ ...a, logo: null }));
 }
