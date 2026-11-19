@@ -1,3 +1,4 @@
+import { secaoOndeRoda } from "./onde-roda.ts";
 import type { MaquinaDto } from "../../src/contracts/maquina.ts";
 import type { EstaMaquina } from "../../src/contracts/desktop-esta-maquina.ts";
 import type { Agente } from "../../src/contracts/agente.ts";
@@ -158,7 +159,7 @@ export function leituraDaMaquina(estado: Pick<Estado, "trabalhos">, id: string):
     l.memoriaBotsMb > 0 ? `os bots usam ${memoriaLegivel(l.memoriaBotsMb)}` : "",
   ].filter(Boolean).join(" · ");
   const porque = l.motivoEspera === null ? ""
-    : l.seguraTudoNovo ? " Com o disco quase sem espaço, nenhuma task nova começa nela; as que já rodam continuam."
+    : l.seguraTudoNovo ? " Com o disco quase sem espaço, nenhuma tarefa nova começa nela; as que já rodam continuam."
       : " Rotinas e pedidos entre bots que ainda não começaram esperam; o que você pede começa.";
   return { curto, nivel, status, texto: `Agora: ${numeros}.${porque}` };
 }
@@ -543,6 +544,7 @@ export function renderMaquinas(estado: Estado): string {
       : grupoConfig(tituloSuas, linhas, { classe: "cfg-maquinas", ...(ob ? { contagem: linhas.length } : {}) });
   return `<section class="espaco-secao cfg-secao cfg-maquinas-secao maquinas">
     ${cab}
+    ${secaoOndeRoda(dados?.ondeRoda ?? null)}
     ${avisoDaNuvem(estado)}
     ${painelCriar(estado)}
     ${conectar}

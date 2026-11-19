@@ -41,7 +41,7 @@ export const USE_CASE_POR_FERRAMENTA = {
   criar_bots: "criarBots",
   responder_pedido: "responderPedido",
   pedir_credencial: "pedirCredencial",
-  avisar_pessoa: "avisarPessoa",
+  avisar_pessoa: "avisarPessoa", mostrar_cartoes: "mostrarCartoes",
   ajustar_barra_lateral: "ajustarBarraLateral",
   abrir_conta: "abrirConta",
   buscar_conversas: "buscarConversas",
