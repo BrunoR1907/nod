@@ -204,7 +204,7 @@ describe("montarPromptSistema", () => {
     expect(rotina).not.toContain("Conexões cadastradas");
     expect(rotina).not.toContain("Apps do marketplace");
     expect(rotina).not.toContain("LER_TUDO");
-    expect(rotina).toMatch(/Apps que você pode pedir com pedir_acesso \(slug\): [a-z_, ]*gmail[a-z_, ]*interno/);
+    expect(rotina).toMatch(/Apps que você pode pedir com pedir_acesso \(slug\): [a-z_, -]*gmail[a-z_, -]*interno/);
     const conversa = montarPromptSistema({ agente, memorias: [], ferramentas: [f("pedir_acesso")], pessoaNome: "Marlon", modo: "conversa", conectores });
     expect(conversa).toContain("Conexões cadastradas");
     expect(conversa).toContain("Apps do marketplace");
@@ -384,14 +384,15 @@ describe("NOD-155: o prompt em parte estável e parte volátil (cache por prefix
     // menção a anotar_pendencia na linha do terminal (a entrada não tem mais pendências nem a ferramenta). Regenerado em
     // 2026-10-19 (PR 6 dos modos de aprovação): as linhas "Aprovações:" e "Terminal:" do total não dizem mais que a
     // credencial para. Regenerado em 2026-10-31 (NOD-444): linha nova só na conversa (perguntar o horário e repropor sem duplicar); rotina e delegação seguem iguais.
-    // 2026-11-18: orientação semântica como padrão; alternativa visual explícita (+255 caracteres estáveis).
+    // 2026-11-18: integração da orientação semântica e do gateway com o aviso de acompanhar pelo Computador do preview.
     const digital = (s: string) => createHash("sha256").update([...s.split("\n")].sort().join("\n")).digest("hex");
     // 2026-11-18: atualização deliberada da política do computador (gateway único e confirmação explícita).
+    // 2026-11-18: catálogo Microsoft/reuniões da main (#171) somado ao da preview; só a linha de apps/slugs mudou.
     // 2026-11-18 (issue #166): a linha da rotina de colega inclui mudar e excluir; a do automático cita excluir a rotina de um colega.
     const esperado = {
-      conversa: "6e987b20b628debb9054d030070c70debf0506514ec77e3a062f35c4fed6d358",
-      rotina: "867c20fc1a81862f51b0d40f8b372b2ed6990566ceceb979b21074c92b21c8bf",
-      delegacao: "cc410116e56f70a726e13fbf87eca1cc10fcdb2f9d8fdfe764f82583161a70e6",
+      conversa: "05df12a9824c92fd0c776c5090166fd9e036e900d5835e3173cd60633df28aba",
+      rotina: "86f9ca6b25524d3a140681e80726e39450d00e5abfb5f7aaf94c126327955d57",
+      delegacao: "ebdfbb87d352c1289317a4f1f2373ca311872069efc58f93a2b99470a4e5f2d1",
     };
     const obtido = { conversa: "", rotina: "", delegacao: "" };
     for (const modo of ["conversa", "rotina", "delegacao"] as const) obtido[modo] = digital(montarPromptSistema({ ...base, ...turnoA, profundidade: 1, modo }));
