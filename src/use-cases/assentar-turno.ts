@@ -38,6 +38,7 @@ import { decidirEsperaNoFundo } from "../domain/espera-no-fundo.ts";
 import { TENTATIVAS_TRANSITORIAS_MAX } from "../shared/constantes.ts";
 import { rotinaDoTurno } from "./apoio-l7.ts";
 import { registrarDesfechoRotina } from "./disparar-rotina.ts";
+import { emSavepoint } from "./savepoint.ts";
 import { avisarEsperaAoRemetente } from "./entregar-resposta-peer.ts";
 import { autoriaAgente, autoriaPessoa, evento } from "./autoria-evento.ts";
 import { aposQuedaDaMaquina, aposTetoDosBastidores } from "./interromper-por-maquina.ts";
