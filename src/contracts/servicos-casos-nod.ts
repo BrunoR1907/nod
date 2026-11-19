@@ -51,7 +51,7 @@ export interface UseCasesNod<Deps> {
   criarBots: CasoNod<Deps, "criar_bots">;
   responderPedido: CasoNod<Deps, "responder_pedido">;
   pedirCredencial: CasoNod<Deps, "pedir_credencial">;
-  avisarPessoa: CasoNod<Deps, "avisar_pessoa">;
+  avisarPessoa: CasoNod<Deps, "avisar_pessoa">; mostrarCartoes: CasoNod<Deps, "mostrar_cartoes">;
   ajustarBarraLateral: CasoNod<Deps, "ajustar_barra_lateral">;
   abrirConta: CasoNod<Deps, "abrir_conta">;
   buscarConversas: CasoNod<Deps, "buscar_conversas">;
