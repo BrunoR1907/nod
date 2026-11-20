@@ -1244,6 +1244,12 @@ const quadroNaTela = criarQuadroNaTela(document, {
   // ADR-180: a grade do quadro em React, ligada por padrão (`?quadro-react=0` volta à por string neste navegador).
   gradeReact: reactNoQuadro(location.href, (() => { try { return localStorage; } catch { return null; } })()),
   dialogoDeHandoff: (doc, d, agora) => (moduloDosDialogos ? moduloDosDialogos.abrirHandoffNoReact(doc as Document, d, agora) : abrirDialogoDeHandoff(doc, d, agora)),
+  menuDaPagina: (m) => {
+    if (!moduloDosDialogos) return null;
+    const controle: { current: { trocar: (html: string, focar: string) => void; fechar: () => void } | null } = { current: null };
+    moduloDosDialogos.abrirMenuDeHtmlNoReact(document, { ...m, aoEscolher: (b) => m.aoEscolher(b), lado: "bottom", alinhar: "start", distancia: 6, classeBase: "pg-menu", semCasca: true, controle });
+    return { fechar: () => controle.current?.fechar() };
+  },
   // ADA-8: a pílula tem um dono só para o dedo (web/lib/gesto-da-pilula-na-tela.ts); a busca e o menu entram por aqui.
   busca: {
     ativa: () => celular.ativo() && chaveDaTelaDeBusca() !== null,
@@ -1365,6 +1371,8 @@ async function lerCompartilhados(): Promise<void> {
   } catch { /* a barra fica com a lista que tinha; o próximo quadro.mudou relê */ }
 }
 const quadroCompartilhado = criarQuadroCompartilhadoNaTela(document, {
+  // ADR-179 (item 2): o React desenha o mesmo HTML no #qcp quando o módulo das telas chegou (com `?telas-react=0`, o innerHTML).
+  desenharHtml: (el, html) => { if (moduloDasTelas) moduloDasTelas.desenharHtmlNoNo(el, html); else el.innerHTML = html; },
   api: () => {
     if (!api) throw new ErroApi(0, "sem_sessao", "Sem sessão");
     return api;
@@ -6652,6 +6660,20 @@ let botPedidoNaUrl = modoQuickChat ? botDaUrl(window.location.search) : null;
 let botsNaMesa: string[] = [];
 if (modoQuickChat) void window.nodDesktop?.naMesa?.().then((ids) => { botsNaMesa = ids; assinaturaQuickChat = ""; render(); }).catch(() => undefined);
 let assinaturaQuickChat = "";
+/**
+ * ADR-179 (item 4): o topo do Quick Chat e o avatar da mesa em React (web/react/janelas/), só nessas janelas; até o módulo
+ * chegar, e com `?janelas-react=0`, o desenho por string.
+ */
+let janelasRx: { topo?: (t: import("./react/janelas/quick-chat.tsx").TopoDoQuickChat) => void; avatar?: (a: { bot: { id: string; nome: string }; mascote: string } | null) => void; modulo: typeof import("./react/janelas/quick-chat.tsx") } | null = null;
+const montarNaMesaDoQuick = (id: string): void => { void window.nodDesktop?.montarNaMesa?.(id).then((ok) => { if (ok && !botsNaMesa.includes(id)) botsNaMesa = [...botsNaMesa, id]; assinaturaQuickChat = ""; render(); }); };
+const desmontarDaMesaDoQuick = (id: string): void => { void window.nodDesktop?.desmontarDaMesa?.(id).then(() => { botsNaMesa = botsNaMesa.filter((b) => b !== id); assinaturaQuickChat = ""; render(); }); };
+const escolherBotDoQuick = (id: string): void => {
+  const bot = (estado.frota?.agentes ?? []).find((a) => a.id === id);
+  if (bot) navegar({ tipo: "conversa", conversaId: bot.conversaId, agenteId: bot.id });
+};
+if ((modoQuickChat || modoAvatar) && reactNaRegiao("janelas", window.location.href, guardadoDoNavegador())) {
+  void import("./react/janelas/quick-chat.tsx").then((m) => { janelasRx = { modulo: m }; assinaturaQuickChat = ""; render(); }, () => undefined);
+}
 /** ADR-173: os ajustes do Mac (Configurações › Máquinas); null fora do app do Mac. */
 let ajustesMac: AjustesMac | null = null;
 async function carregarAjustesMac(): Promise<void> {
@@ -6699,7 +6721,17 @@ function pintarQuickChat(): void {
   assinaturaQuickChat = assinatura;
   let topo = document.getElementById("quick-chat-topo");
   if (!topo) { topo = document.createElement("div"); topo.id = "quick-chat-topo"; document.body.prepend(topo); }
-  topo.innerHTML = htmlTopoQuickChat(bots, atual, { pode: Boolean(window.nodDesktop?.montarNaMesa), montado: atual !== null && botsNaMesa.includes(atual) }, doAtual ? htmlMascote(doAtual, "sm") : "");
+  const mesa = { pode: Boolean(window.nodDesktop?.montarNaMesa), montado: atual !== null && botsNaMesa.includes(atual) };
+  const avatar = doAtual ? htmlMascote(doAtual, "sm") : "";
+  if (janelasRx) {
+    janelasRx.topo ??= janelasRx.modulo.criarTopoDoQuickChat(topo, {
+      escolherBot: escolherBotDoQuick, montar: montarNaMesaDoQuick, desmontar: desmontarDaMesaDoQuick,
+      expandir: () => void window.nodDesktop?.quickChatExpandir?.(), fechar: () => void window.nodDesktop?.quickChatEsconder?.(),
+    });
+    janelasRx.topo({ bots, atual, mesa, avatar });
+    return;
+  }
+  topo.innerHTML = htmlTopoQuickChat(bots, atual, mesa, avatar);
 }
 /** `?janela=avatar&bot=<id>`: só o mascote do bot, num fundo transparente. */
 function pintarAvatarDaMesa(): void {
@@ -6710,6 +6742,11 @@ function pintarAvatarDaMesa(): void {
   assinaturaQuickChat = assinatura;
   let raiz = document.getElementById("avatar-mesa");
   if (!raiz) { raiz = document.createElement("div"); raiz.id = "avatar-mesa"; document.body.prepend(raiz); }
+  if (janelasRx) {
+    janelasRx.avatar ??= janelasRx.modulo.criarAvatarDaMesa(raiz, { abrir: (b) => void window.nodDesktop?.quickChatAbrir?.(b), tirar: (b) => void window.nodDesktop?.desmontarDaMesa?.(b) });
+    janelasRx.avatar(bot ? { bot, mascote: htmlMascote(bot, "xl") } : null);
+    return;
+  }
   raiz.innerHTML = bot ? htmlAvatarDaMesa(bot, htmlMascote(bot, "xl")) : "";
 }
 async function capturarParaOComposer(): Promise<void> {
@@ -6729,8 +6766,8 @@ document.addEventListener("click", (ev) => {
   if (alvo.dataset.act === "capturar-tela") void capturarParaOComposer();
   else if (alvo.dataset.act === "avatar-abrir") void ponte?.quickChatAbrir?.(id);
   else if (alvo.dataset.act === "avatar-tirar") void ponte?.desmontarDaMesa?.(id);
-  else if (alvo.dataset.act === "quick-montar") void ponte?.montarNaMesa?.(id).then((ok) => { if (ok && !botsNaMesa.includes(id)) botsNaMesa = [...botsNaMesa, id]; render(); });
-  else if (alvo.dataset.act === "quick-desmontar") void ponte?.desmontarDaMesa?.(id).then(() => { botsNaMesa = botsNaMesa.filter((b) => b !== id); render(); });
+  else if (alvo.dataset.act === "quick-montar") montarNaMesaDoQuick(id);
+  else if (alvo.dataset.act === "quick-desmontar") desmontarDaMesaDoQuick(id);
   else if (alvo.dataset.act === "quick-expandir") void window.nodDesktop?.quickChatExpandir?.();
   else void window.nodDesktop?.quickChatEsconder?.();
 });
@@ -6741,9 +6778,9 @@ document.addEventListener("change", (ev) => {
 });
 document.addEventListener("change", (ev) => {
   const sel = ev.target as HTMLSelectElement;
-  if (!sel.matches?.('select[data-quick="bot"]')) return;
-  const bot = (estado.frota?.agentes ?? []).find((a) => a.id === sel.value);
-  if (bot) navegar({ tipo: "conversa", conversaId: bot.conversaId, agenteId: bot.id });
+  // O do React troca pela prop (onChange): aqui só o desenho por string.
+  if (!sel.matches?.('select[data-quick="bot"]') || janelasRx) return;
+  escolherBotDoQuick(sel.value);
 });
 document.addEventListener("keydown", (ev) => {
   // Esc no Quick Chat esconde a janela, salvo quando outro Esc está em uso (menu, diálogo, sugestão do composer).
@@ -12507,6 +12544,27 @@ function abrirMenuDaBiblioteca(ancora: HTMLElement): void {
   // Revisão 2 (achado 2): a Biblioteca redesenha durante a espera (SSE, a releitura com `ate`) e troca o botão "…";
   // posição, aria-expanded e o foco de volta seguem o botão que está na tela.
   const ancoraViva = (): HTMLElement => (ancora.isConnected ? ancora : document.querySelector<HTMLElement>(`#detalhes [data-act="biblioteca-menu"][data-id="${CSS.escape(id)}"]`)) ?? ancora;
+  const irAteDaBiblioteca = (fala: HTMLElement, vizinha: boolean): void => {
+    abrirDetalhesAcima(fala);
+    // NOD-382: no celular, ir para a mensagem fecha o perfil de verdade (o estado junto), e a pessoa fica no chat.
+    if (ehCelular() && estado.perfilCelular) fecharPerfil("chat", false);
+    else if (window.matchMedia("(max-width: 1099px)").matches) {
+      document.querySelector(".app")?.classList.remove("detalhes-abertos");
+      marcarPainelNaPilula();
+    }
+    // Revisão 3 (B5): a vizinha não leva o realce de "é esta" (como o alvoDoQueEspera de levar-ao-alvo.ts).
+    levarAo(fala, !vizinha);
+  };
+  // ADR-179: o do Base UI quando o módulo dos diálogos chegou; a espera do Ir é a mesma.
+  if (moduloDosDialogos) {
+    moduloDosDialogos.abrirMenuDaBibliotecaNoReact(document, {
+      ancora, ancoraViva, nome, baixar: Boolean(url),
+      aoBaixar: () => { if (!url) return; const a = document.createElement("a"); a.href = baixarUrl(url); a.download = nome; a.click(); },
+      ir: (ui) => (mensagemDe ? irParaFalaDaBiblioteca(mundoDaFala, ui, conversa, mensagemDe) : null),
+      irAte: irAteDaBiblioteca,
+    });
+    return;
+  }
   const d = dialogo(htmlDoMenuDaBiblioteca({ nome, baixar: Boolean(url) }), true);
   d.setAttribute("aria-label", `Ações de ${nome}`);
   d.classList.add("menu-compartilhar");
@@ -12545,15 +12603,7 @@ function abrirMenuDaBiblioteca(ancora: HTMLElement): void {
     fechar: () => { if (d.open) d.close(); },
     irAte: (fala, vizinha) => {
       if (d.open) d.close();
-      abrirDetalhesAcima(fala);
-      // NOD-382: no celular, ir para a mensagem fecha o perfil de verdade (o estado junto), e a pessoa fica no chat.
-      if (ehCelular() && estado.perfilCelular) fecharPerfil("chat", false);
-      else if (window.matchMedia("(max-width: 1099px)").matches) {
-        document.querySelector(".app")?.classList.remove("detalhes-abertos");
-        marcarPainelNaPilula();
-      }
-      // Revisão 3 (B5): a vizinha não leva o realce de "é esta" (como o alvoDoQueEspera de levar-ao-alvo.ts).
-      levarAo(fala, !vizinha);
+      irAteDaBiblioteca(fala, vizinha);
     },
   });
   d.addEventListener("click", (e) => {

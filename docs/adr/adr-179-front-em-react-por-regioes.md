@@ -165,6 +165,26 @@ contagem da janela andam por redesenho a cada segundo (0,6 ms por tique no Chrom
 nó (o conversor). As frases e os botões da rede de segurança viraram dado (`semIaNaTela`, `textoIaVoltou`), que a string
 e o JSX leem — o HTML por string saiu idêntico em 1.155 estados.
 
+**As janelas pequenas do app do Mac** (item 4; 2026-11-19), em JSX (`web/react/janelas/quick-chat.tsx`), com a volta
+`?janelas-react=0`: o topo do Quick Chat (ADR-173: a pílula do bot com o `<select>` nativo por baixo, o alfinete da mesa,
+⤢ e ✕) e o avatar solto na mesa, com o mesmo DOM de `htmlTopoQuickChat` e `htmlAvatarDaMesa` e as ações por prop. O
+módulo só baixa nessas janelas; a assinatura do main segue decidindo quando redesenhar.
+E **o menu da Biblioteca** (NOD-363, `web/react/dialogos/menu-da-biblioteca.tsx`): o mesmo conteúdo de
+`htmlDoMenuDaBiblioteca` e a mesma espera do "Ir para a mensagem" (`criarMenuDoIr`, `irParaFalaDaBiblioteca`); o item
+carregando e a nota da falha são estado, e o Ir carregando fica desligado e focável, como o `aria-disabled` de antes.
+E **o menu da página do Quadro** (NOD-445; o ícone da doca: segurar, botão direito, Shift+F10): o `quadro-na-tela` recebe
+quem o abre (`menuDaPagina`, como o `dialogoDeHandoff`), e o main passa o menu do Base UI com o mesmo HTML de
+`menuDaPagina` — o popup é o próprio `.pg-menu` (`classeBase`, `semCasca`), e a escolha leva o id da página aberta, porque
+o menu já saiu quando ela chega.
+
+**O quadro compartilhado** (`#qcp`, NOD-455; item 2, 2026-11-19): o React desenha no casco o MESMO HTML do controle
+(`desenharHtmlNoNo`, em `web/react/telas/telas.tsx`), como as regiões da ADR-189 — o controle
+(`web/lib/quadro-compartilhado-na-tela.ts`) segue dono das ações (a delegação no `#qcp`), da rolagem ao vivo (ADA-7/ADA-12)
+e do foco, e recebe quem desenha (`desenharHtml`). O React reconcilia em vez de regravar: o que a pessoa digita e o foco
+ficam no mesmo nó. A jornada de rolagem (`quadro-rolagem-chrome`) roda pelo React por padrão (com `NOD_QCP_REACT=0`, pelo
+innerHTML), os 76 casos nos dois caminhos; "regravou" passou a ser qualquer mudança na subárvore, porque o React não troca
+os filhos do casco. O JSX desta tela entra com o das regiões do #192 (item 5).
+
 A ordem das fases 2–6 é a proposta desta ADR (da menos para a mais quente); trocar a ordem não muda as regras acima.
 
 **A régua de fps e tarefa longa é o portão de cada fase.** Antes e depois de cada região, `node scripts/carga-tela/rodar.ts
