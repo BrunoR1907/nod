@@ -179,7 +179,9 @@ import { renderNovoBot } from "./telas/novo-bot.ts";
 import { renderNovaRotina } from "./telas/nova-rotina.ts";
 import { aoPedirRegrasDoBot, contextoInteligencia, nivelDaGaveta, paiDoNivel, regrasPodeFazer } from "./telas/detalhes.ts";
 import { avisarNaIdentidade, criarFilaDePerfil, criarSalvarAvatar, ERRO_AO_SALVAR, instalarIdentidade, sobreporPendentes } from "./lib/gaveta-identidade.ts";
-import { renderEspaco } from "./telas/espaco.ts";
+import { decidirCampo, ERRO_NOME_VAZIO } from "./lib/identidade-regras.ts";
+import { preservandoCampo, registrarNomeEditavel } from "./lib/nome-editavel-eventos.ts";
+import { renderEspaco, secaoInicialDasConfiguracoes } from "./telas/espaco.ts";
 import { diaDe, inicioDoDia } from "./lib/agenda.ts";
 import { agendaPorLer, escNaAgenda } from "./estado/agenda.ts";
 import { confirmarCriarBot, criarRapido } from "./telas/confirmar-criar-bot.ts";
@@ -376,7 +378,7 @@ function executarDaPaleta(item: ItemPaleta): void {
     case "nova-tarefa": abrirNovaTarefa(); return;
     case "nova-sala": navegar({ tipo: "nova-sala" }); return;
     case "barra": executarAtalho({ tipo: "barra" }); return;
-    case "ajustes": abrirEspaco("geral"); return;
+    case "ajustes": abrirEspaco(secaoInicialDasConfiguracoes(estado)); return;
     case "trabalhos": navegar({ tipo: "trabalhos" }); return;
     case "tarefas": navegar({ tipo: "tarefas" }); return;
     case "sua-vez": navegar({ tipo: "sua-vez" }); return;
@@ -4588,7 +4590,8 @@ function regiaoReabrindo(id: string, html: string, rolagem?: { seletor: string; 
   // NOD-367 (revisão 2): o botão, switch ou seletor focado volta ao mesmo controle no HTML novo (chave estável, não posição).
   const focado = !manter && document.activeElement instanceof HTMLElement && raiz.contains(document.activeElement) ? document.activeElement : null;
   const seletorFoco = focado ? seletorDoFocoNaRegiao(focado) : null;
-  regiao(id, html);
+  // O nome editável que sai do DOM no redesenho não salva o texto pela metade (web/lib/nome-editavel.ts).
+  preservandoCampo(() => regiao(id, html));
   if (focado && !focado.isConnected && seletorFoco) {
     try { raiz.querySelector<HTMLElement>(seletorFoco)?.focus({ preventScroll: true }); } catch { /* um data-* que não vira seletor: o foco não volta, o render segue */ }
   }
@@ -7292,6 +7295,8 @@ const contasDaPessoa = criarContasDaPessoa({
   cifrar: (chave, codigo) => cifrarCodigo(chave, codigo),
   agendar: (fn, ms) => { window.setTimeout(fn, ms); },
   agora: Date.now,
+  // Paper A2/C2: a página oficial abre sozinha (no app, o target=_blank sai para o navegador padrão, ADR-053).
+  abrirPagina: (url) => { window.open(url, "_blank", "noopener,noreferrer"); },
 });
 /**
  * NOD-94: "Usar uma máquina só para o computador" (instalação por SSH). Os segredos ficam na memória do controlador;
@@ -7364,7 +7369,11 @@ function gatilhoDoDialogo(): string | null {
   // ADA-245: o "Remover o nod deste computador?" abre do "…" da linha; o foco volta para ele.
   const rm = estado.removerUi.dialogo;
   if (rm) return `[data-act="maq-menu"][data-maquina="${CSS.escape(rm.previa.id)}"]`;
-  if (u.confirmar) return `[data-act="cl-menu"][data-id="${CSS.escape(u.confirmar.contaId)}"]`;
+  // Jornadas da IA (Paper G2): o Sair e o Remover moram na conta aberta; o foco volta para o botão que abriu.
+  if (u.confirmar) {
+    const id = CSS.escape(u.confirmar.contaId);
+    return u.confirmar.tipo === "sair" ? `[data-act="cl-sair"][data-id="${id}"][data-maquina="${CSS.escape(u.confirmar.maquinaId)}"]` : `[data-act="cl-remover"][data-id="${id}"]`;
+  }
   if (u.desconectar) return `[data-act="maq-menu"][data-maquina="${CSS.escape(u.desconectar.maquinaId)}"]`;
   // Revisão NOD-92 (item 16): o excluir abre do ⋯ da máquina ou do "Excluir" da VM que falhou ao ser criada.
   const x = estado.nuvem.excluir;
@@ -8480,7 +8489,7 @@ const ACOES: Record<string, (el: HTMLElement) => Promise<void> | void> = {
   "abrir-busca": () => (celular.ativo() ? abrirBusca() : abrirPaleta()),
   // ADR-167 (Paper): o botão de recolher do topo da barra (o mesmo ⌘B), a engrenagem do rodapé (⌘,) e a linha Tarefas.
   "alternar-barra": () => { executarAtalho({ tipo: "barra" }); },
-  "abrir-ajustes": () => abrirEspaco("geral"),
+  "abrir-ajustes": () => abrirEspaco(secaoInicialDasConfiguracoes(estado)),
   "abrir-tarefas": (el) => abrirTarefasDaBarra(el.dataset.agente),
   "fechar-nova-conversa": () => navegar({ tipo: "inicio" }),
   "nc-enviar": () => escolherNaNovaConversa(),
@@ -9254,8 +9263,6 @@ const ACOES: Record<string, (el: HTMLElement) => Promise<void> | void> = {
     if (nova) aoSoltarOrdem("pessoa", nova);
     focarGatilho(`[data-act="cl-menu"][data-id="${CSS.escape(chaveDoMenuDaIa(ia))}"]`);
   },
-  "cl-renomear": (el) => { contasDaPessoa.renomear(el.dataset.id ?? null); focarNovo(); },
-  "cl-renomear-fechar": () => contasDaPessoa.renomear(null),
   "cl-detalhe": (el) => contasDaPessoa.detalhe(el.dataset.id ?? ""),
   // Revisor do PR #429: o diálogo abre na hora (a busca das frentes leva até 5 s); o foco vai ao "Cancelar" já ao abrir e
   // de novo quando a lista chega e o diálogo é redesenhado.
@@ -9263,18 +9270,27 @@ const ACOES: Record<string, (el: HTMLElement) => Promise<void> | void> = {
   "cl-remover": (el) => { const p = contasDaPessoa.pedirRemocao(el.dataset.id ?? ""); focarNovo(); void p.then(focarNovo); },
   "cl-confirmar": async () => { const volta = gatilhoDoDialogo(); await contasDaPessoa.confirmar(); focarGatilho(volta); },
   "cl-confirmar-fechar": () => { const volta = gatilhoDoDialogo(); contasDaPessoa.fecharConfirmacao(); focarGatilho(volta); },
-  "cl-entrar": (el) => contasDaPessoa.entrar(el.dataset.id ?? "", el.dataset.maquina ?? ""),
+  // Paper G1b: o "Entrar" da linha da lista abre a conta e o login aparece embaixo da máquina dele (G2c).
+  "cl-entrar": (el) => {
+    if (el.closest(".cl-linha-g1")) contasDaPessoa.abrirConta(el.dataset.id ?? null);
+    return contasDaPessoa.entrar(el.dataset.id ?? "", el.dataset.maquina ?? "");
+  },
   "cl-nova": () => { contasDaPessoa.abrirNova(); document.querySelector<HTMLElement>("#espaco [data-cl-nova-apelido], #espaco [data-act='cl-conectar-vm']")?.focus(); },
   // Sem máquina para o login: fecha a conta nova e abre o Conectar em Máquinas, já no comando com o convite.
   "cl-conectar-vm": (el) => { contasDaPessoa.fecharNova(); abrirEspaco("maquinas"); return ACOES["conectar-maquina"]!(el); },
   // NOD-89 (corte 1): o atalho "Conectar uma máquina sempre ligada" da linha "Roda em" e da execução que não rodou abre
   // Máquinas › Conectar, no padrão do `cl-conectar-vm`. O fluxo da nuvem (NOD-92) entra no PR B.
   "conectar-sempre-ligada": (el) => { abrirEspaco("maquinas"); return ACOES["conectar-maquina"]!(el); },
-  "cl-nova-fechar": () => contasDaPessoa.fecharNova(),
+  "cl-nova-fechar": (el) => contasDaPessoa.fecharNova(el.dataset.recente),
   "cl-nova-na-maquina": (el) => { const ia = el.dataset.ia; if (ehIa(ia)) void contasDaPessoa.novaNaMaquina(ia, el.dataset.maquina ?? ""); },
   // ADR-108 (R8): o liga/desliga "na fila" de cada conta (a 2ª da mesma IA e a corporativa pedem os termos antes).
   "cl-fila": (el) => { void contasDaPessoa.naFila(el.dataset.id ?? "", el.getAttribute("aria-checked") !== "true"); },
   "cl-filtro": (el) => contasDaPessoa.filtro(el.dataset.maquina || null),
+  "cl-abrir": (el) => contasDaPessoa.abrirConta(el.dataset.id ?? null),
+  "cl-fechar-conta": () => contasDaPessoa.abrirConta(null),
+  "cl-nova-da-conta": (el) => contasDaPessoa.abrirNovaDaConta(el.dataset.id ?? ""),
+  "cl-nova-retomar": (el) => { if (el.dataset.ia === "claude-cli" || el.dataset.ia === "codex-cli") contasDaPessoa.retomarNova(el.dataset.ia, el.dataset.apelido ?? ""); },
+  "cl-pendentes": (el) => contasDaPessoa.pendentes(el.dataset.valor === "1"),
   "cl-gerenciar": (el) => { dispatch({ tipo: "contas-ui", mudanca: { maquinaMenu: null } }); abrirEspaco("conexao"); contasDaPessoa.filtro(el.dataset.maquina || null); },
   "cl-login-cancelar": (el) => contasDaPessoa.cancelarLogin(el.dataset.login ?? ""),
   "cl-login-fechar": (el) => contasDaPessoa.fecharLogin(el.dataset.login ?? ""),
@@ -9601,7 +9617,6 @@ const FORMS: Record<string, (form: HTMLFormElement) => Promise<void>> = {
     contasDaPessoa.mudarNova({ ia, apelido, maquinas });
     await contasDaPessoa.enviarNova();
   },
-  "cl-renomear": async (form) => contasDaPessoa.salvarApelido(form.dataset.id ?? "", form.querySelector<HTMLInputElement>('input[name="apelido"]')?.value ?? ""),
   "cl-codigo": async (form) => contasDaPessoa.enviarCodigo(form.dataset.login ?? "", form.querySelector<HTMLInputElement>('input[name="codigo"]')?.value ?? ""),
   "maq-renomear": (form) => agir(async () => {
     const nome = form.querySelector<HTMLInputElement>('input[name="nome"]')?.value.trim() ?? "";
@@ -9954,6 +9969,17 @@ document.addEventListener("keydown", (ev) => {
     document.querySelector<HTMLElement>(seletor)?.focus();
   }
 });
+// Revisão de 2026-11-20: o nome da conta aberta é o nome editável do DS, o mesmo do bot (web/lib/nome-editavel.ts).
+registrarNomeEditavel("conta", (campo) => {
+  const salvo = campo.dataset.salvo ?? "";
+  const d = decidirCampo("nome", campo.value, salvo);
+  if (d.tipo === "nada") { campo.value = salvo; return; }
+  if (d.tipo === "vazio") { campo.value = salvo; dispatch({ tipo: "contas-ui", mudanca: { nota: ERRO_NOME_VAZIO } }); return; }
+  campo.value = d.valor;
+  campo.dataset.salvo = d.valor;
+  // Fora do focusout, como no bot: redesenhar aqui tiraria do DOM o que vai receber o foco ou o clique.
+  setTimeout(() => void contasDaPessoa.salvarApelido(campo.dataset.id ?? "", d.valor), 0);
+});
 // NOD-367: setas, Home e End no "…" das Configurações (o `.cl-menu` aberto), como no menu do avatar.
 document.addEventListener("keydown", (ev) => {
   const menu = (ev.target as HTMLElement).closest?.<HTMLElement>("#espaco .cl-menu");
@@ -10020,7 +10046,7 @@ document.addEventListener("keydown", (ev) => {
     return;
   }
   const u = estado.contasUi;
-  const mudanca = u.confirmar ? { confirmar: null } : u.desconectar ? { desconectar: null } : u.menu || u.maquinaMenu ? { menu: null, maquinaMenu: null } : u.renomear ? { renomear: null } : u.maquinaRenomear ? { maquinaRenomear: null } : null;
+  const mudanca = u.confirmar ? { confirmar: null } : u.desconectar ? { desconectar: null } : u.menu || u.maquinaMenu ? { menu: null, maquinaMenu: null } : u.maquinaRenomear ? { maquinaRenomear: null } : null;
   if (!mudanca) return;
   ev.stopPropagation();
   const volta = gatilhoDoDialogo();
@@ -11692,7 +11718,7 @@ function executarAtalho(a: AcaoAtalho): boolean {
   if (a.tipo === "folha") { abrirAtalhos(); return true; }
   // ADR-167: os atalhos novos que não colidem com os do nod.
   if (a.tipo === "barra") { mudarBarra(alternarCompacta(barraAtual), true); anunciar(barraAtual.compacta ? "Barra só com avatares" : "Barra aberta"); return true; }
-  if (a.tipo === "ajustes") { abrirEspaco("geral"); return true; }
+  if (a.tipo === "ajustes") { abrirEspaco(secaoInicialDasConfiguracoes(estado)); return true; }
   if (a.tipo === "paleta") { abrirPaleta(); return true; }
   // ADR-187 §7: ⌘N abre a tarefa nova do bot da tela (fora de um bot, só avisa e a tecla não vai ao navegador).
   if (a.tipo === "nova-tarefa") { abrirNovaTarefa(); return true; }
