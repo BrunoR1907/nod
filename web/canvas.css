@@ -313,6 +313,8 @@ button.cv-nota { cursor: pointer; }
   .cv-aviso { min-height: 44px; }
   .cv-aviso-x { width: 44px; height: 44px; border-radius: 22px; }
   .cv-menu-ver { margin-left: 0; }
+  .cv-filtros { flex-wrap: wrap; }
+  .cv-filtro { min-height: 44px; border-radius: 22px; }
   .cv-lin-a { grid-template-columns: 72px minmax(0, 1fr); }
   .cv-lin-mini { width: 72px; height: 46px; }
   .cv-lin-est, .cv-lin-a time { grid-column: 2; }
