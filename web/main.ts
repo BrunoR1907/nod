@@ -149,7 +149,7 @@ import { criarCanvasNaTela } from "./lib/canvas-na-tela.ts";
 import { configurarAppCanvas, esquecerErroDoCanvas, guardarAppCanvas } from "./telas/marketplace-canvas.ts";
 import { conversaDaTrilha, criarTrilhaDaConversa } from "./lib/trilha-conversa.ts";
 import { criarQuadroCompartilhadoNaTela } from "./lib/quadro-compartilhado-na-tela.ts";
-import { criarTarefasDeTodosNaTela } from "./lib/tarefas-de-todos-na-tela.ts";
+import { criarTarefasDeTodosNaTela, type DepsDasTarefas } from "./lib/tarefas-de-todos-na-tela.ts";
 import { caminhoDoQuadro, quadroDaUrl, releListaDosCompartilhados } from "./lib/quadro-compartilhado.ts";
 import { secaoDosCompartilhados } from "./telas/quadro-compartilhado.ts";
 import type { QuadroCompartilhadoDto } from "../src/contracts/quadro-pessoas.ts";
@@ -542,6 +542,67 @@ function blocosDaConversaMudariam(id: string, blocos: readonly BlocoDaTimeline[]
 function desenharBlocosDaConversa(id: string, blocos: readonly BlocoDaTimeline[]): HTMLElement[] {
   const parte = parteNoReact(id);
   return parte ? parte.desenhar(blocos) : regiaoPorBlocos(id, blocos);
+}
+/**
+ * ADR-179 (as telas no lugar da conversa): as telas já em componentes React (web/react/telas/) montam na vaga que o main
+ * põe na região `#timeline`. Enquanto o módulo baixa, ou com `?telas-react=0`, seguem pelo desenho por string.
+ */
+const telasNoReact = reactNaRegiao("telas", window.location.href, guardadoDoNavegador());
+let moduloDasTelas: typeof import("./react/telas/telas.tsx") | null = null;
+let telasReact: import("./react/telas/telas.tsx").TelasNoReact | null = null;
+if (telasNoReact) {
+  void import("./react/telas/telas.tsx").then((m) => {
+    moduloDasTelas = m;
+    telasReact = m.criarTelasNoReact(lojaDoEstado, {
+      naoLidos: {
+        abrirConversa: (conversaId, agenteId) => navegar({ tipo: "conversa", conversaId, agenteId }),
+        abrirSala: (salaId, conversaId) => navegar({ tipo: "sala", salaId, conversaId }),
+        marcarLida: (conversaId, nome) => marcarComDesfazer(conversaId, nome),
+        marcarTudo: () => marcarTudoComDesfazer(),
+      },
+      rotinas: {
+        pausar: (id) => void pausarRotina(id),
+        ativar: (id) => void ativarRotina(id),
+        testar: (id, agenteId, botao) => void executarRotina(id, agenteId, botao),
+        alternarExecucoes: (id) => alternarExecucoes(id),
+        abrirConversa: (conversaId, agenteId) => navegar({ tipo: "conversa", conversaId, agenteId }),
+        verPergunta: (conversaId, agenteId, decisaoId) => verPerguntaNaConversa(conversaId, agenteId, decisaoId),
+        novaRotina: () => navegar({ tipo: "nova-rotina" }),
+      },
+      novoBot: {
+        abrirConversa: (conversaId, agenteId) => navegar({ tipo: "conversa", conversaId, agenteId }),
+        fechar: () => navegar({ tipo: "inicio" }),
+        criar: () => abrirDialogoCriarBot((document.getElementById("busca-destinatario") as HTMLInputElement | null)?.value.trim() ?? ""),
+        novoChatEmGrupo: () => navegar({ tipo: "nova-sala" }),
+        enviar: () => escolherNaNovaConversa(),
+        aoDesenhar: () => filtrarBots((document.getElementById("busca-destinatario") as HTMLInputElement | null)?.value ?? "", ".contact-picker"),
+      },
+      tarefas: { fonte: tarefasDeTodos, avatar: depsDasTarefas.avatar, abrirTarefa: depsDasTarefas.abrirTarefa, abrirPagina: depsDasTarefas.abrirPagina },
+      trabalhos: {
+        vista: (porEstado, botEscolhido) => {
+          const t = estado.tela.tipo === "trabalhos" ? estado.tela : { tipo: "trabalhos" as const };
+          const bot = botEscolhido ?? t.bot;
+          navegar({ tipo: "trabalhos", ...(porEstado ? { filtro: "todos" as const } : {}), ...(t.mostrar ? { mostrar: t.mostrar } : {}), ...(bot ? { bot } : {}) });
+        },
+        mostrar: (m) => { const t = estado.tela.tipo === "trabalhos" ? estado.tela : { tipo: "trabalhos" as const }; navegar({ ...t, mostrar: m }); },
+        menuDeBots: (botao) => abrirMenuDeBotsDasTarefas(botao),
+        novaTarefa: (botao) => abrirNovaTarefa(botao),
+        alternarBot: (id) => dispatch({ tipo: "bot-trabalhos", agenteId: estado.botAbertoEmTrabalhos !== id ? id : null }),
+        abrirTrabalho: (id) => abrirTrabalho(id),
+        abrirConversa: (conversaId, agenteId) => navegar({ tipo: "conversa", conversaId, agenteId }),
+      },
+      novaRotina: {
+        criar: (form) => void FORMS["criar-rotina"]?.(form),
+        cancelar: () => navegar({ tipo: "rotinas" }),
+        criarBot: () => navegar({ tipo: "novo-bot" }),
+      },
+      novaSala: { criar: (form) => void FORMS["criar-sala"]?.(form) },
+      suaVez: { limparVencidos: (ids) => void limparVencidos(ids) },
+    });
+    if (estado.sessao) render();
+  }, () => {
+    // Sem o módulo, as telas continuam por string.
+  });
 }
 if (conversaNoReact || regioesLigadas.size > 0) {
   void import("./react/html/regiao-por-html.tsx").then((m) => {
@@ -1274,7 +1335,7 @@ const quadroCompartilhado = criarQuadroCompartilhadoNaTela(document, {
   aoPerderAcesso: (qid) => { compartilhados = compartilhados.filter((c) => c.id !== qid); render(); void lerCompartilhados(); },
 });
 /** Tela 18d do Paper: a página Tarefas de todos os bots (a linha "Tarefas" da barra abre `{ tipo: "tarefas" }`). */
-const tarefasDeTodos = criarTarefasDeTodosNaTela(document, {
+const depsDasTarefas: DepsDasTarefas = {
   api: () => {
     if (!api) throw new ErroApi(0, "sem_sessao", "Sem sessão");
     return api;
@@ -1292,7 +1353,8 @@ const tarefasDeTodos = criarTarefasDeTodosNaTela(document, {
     navegar({ tipo: "conversa", conversaId: bot.conversaId, agenteId: bot.id });
     quadroNaTela.abrirPagina("tarefas");
   },
-});
+};
+const tarefasDeTodos = criarTarefasDeTodosNaTela(document, depsDasTarefas);
 
 /**
  * NOD-422 (revisão do PR #630): "conversa de membro aberta" conta a Conversa do bot à vista, nunca o Quadro dele (a aba, o
@@ -2214,6 +2276,40 @@ function decidirRitmo(el: HTMLElement): Promise<void> {
     const conversaId = el.dataset.conversa;
     dispatch({ tipo: "invalidar", quais: [...(conversaId ? [`conversa:${conversaId}` as Invalidacao] : []), "rotinas"] });
   });
+}
+
+/** Sua vez (e a conversa): dispensa os pedidos vencidos de uma vez ("Limpar vencidos"). */
+function limparVencidos(ids: readonly string[]): Promise<void> {
+  return agir(async () => {
+    for (const id of ids) await api!.dispensar(id);
+    dispatch({ tipo: "invalidar", quais: ["sua-vez"] });
+  });
+}
+
+/**
+ * As ações de uma rotina (a tela Rotinas por string, pelo `data-act`, e a em React, por prop): pausar (até uma data, ou
+ * sem prazo), ativar, testar agora e abrir ou fechar as últimas execuções.
+ */
+function pausarRotina(id: string, ate?: string): Promise<void> {
+  return agir(async () => void (await api!.pausarRotina(id, ate), dispatch({ tipo: "invalidar", quais: ["rotinas"] })));
+}
+function ativarRotina(id: string): Promise<void> {
+  return agir(async () => void (await api!.ativarRotina(id), dispatch({ tipo: "invalidar", quais: ["rotinas"] })));
+}
+/** `ancora`: o botão que pediu (o diálogo "rodar mais uma" abre junto dele). */
+function executarRotina(id: string, agenteId: string, ancora: HTMLElement): Promise<void> {
+  return agir(async () => {
+    // NOD-272: com execução já aberta, pergunta antes no diálogo próprio (A1 do Gil no #335); cancelar não roda nada.
+    const r = await executarRotinaComConfirmacao((o) => api!.executarRotina(id, o), (p) => abrirRodarMaisUma(p, ancora));
+    if (!r) return;
+    dispatch({ tipo: "invalidar", quais: ["rotinas", `execucoes:${id}`, ...(r.ids.bloqueada ? (["sua-vez", `conversa:${r.ids.conversaId ?? ""}`] as const) : [])] });
+    navegar({ tipo: "conversa", conversaId: r.ids.conversaId ?? "", agenteId });
+  });
+}
+function alternarExecucoes(id: string): void {
+  const abrindo = !estado.historicoAberto[id];
+  dispatch({ tipo: "alternar-historico", rotinaId: id });
+  if (abrindo) dispatch({ tipo: "invalidar", quais: [`execucoes:${id}`] });
 }
 
 /** NOD-449: depois de marcar ou desfazer, a lista, os pontos da barra e a conversa aberta (o card e o recibo do chat). */
@@ -3380,39 +3476,40 @@ function renderPrincipal(): void {
   let comAbas = false;
   switch (t.tipo) {
     case "novo-bot":
-      corpo = renderNovoBot(estado);
+      corpo = moduloDasTelas && telasReact ? moduloDasTelas.vagaDaTela("novo-bot") : renderNovoBot(estado);
       break;
     case "nova-rotina":
-      corpo = renderNovaRotina(estado, t.agenteId);
+      corpo = moduloDasTelas && telasReact ? moduloDasTelas.vagaDaTela("nova-rotina") : renderNovaRotina(estado, t.agenteId);
       break;
     case "inicio":
       break;
     case "sua-vez":
-      corpo = renderSuaVez(estado);
+      corpo = moduloDasTelas && telasReact ? moduloDasTelas.vagaDaTela("sua-vez") : renderSuaVez(estado);
       break;
     case "nao-lidos":
-      corpo = renderNaoLidos(estado);
+      corpo = moduloDasTelas && telasReact ? moduloDasTelas.vagaDaTela("nao-lidos") : renderNaoLidos(estado);
       break;
     case "tarefas":
-      corpo = '<div id="tdt" class="tdt-casco"></div>';
+      // ADR-179: em React, a vaga leva a classe do casco (o CSS a lê) e não o id: o controlador só desenha no #tdt por string.
+      corpo = moduloDasTelas && telasReact ? moduloDasTelas.vagaDaTela("tarefas") : '<div id="tdt" class="tdt-casco"></div>';
       break;
     case "quadro-compartilhado":
       // NOD-455: o casco; o controlador desenha dentro dele (e não é regravado enquanto a tela é a mesma).
       corpo = '<div id="qcp" class="qcp-casco"></div>';
       break;
     case "rotinas":
-      corpo = renderRotinas(estado);
+      corpo = moduloDasTelas && telasReact ? moduloDasTelas.vagaDaTela("rotinas") : renderRotinas(estado);
       break;
     case "conectores":
       corpo = renderConectores(estado);
       break;
     case "nova-sala":
-      corpo = renderNovaSala(estado);
+      corpo = moduloDasTelas && telasReact ? moduloDasTelas.vagaDaTela("nova-sala") : renderNovaSala(estado);
       break;
     // ADR-083 (#195/#196): "Todos os trabalhos", a tela da task e a tela provisória de uma linha do chat.
     case "trabalhos":
       // ADR-187 §8 (Paper 5a e 5b): abre em "Por bot" (com o dono de cada bot no servidor); "Por estado" é a outra vista.
-      corpo = renderTelaTarefas(estado, t);
+      corpo = moduloDasTelas && telasReact ? moduloDasTelas.vagaDaTela("trabalhos") : renderTelaTarefas(estado, t);
       break;
     case "trabalho": {
       // ADR-187 §6 (Paper 4k e 4p): a tarefa em tela cheia, com a fileira de abas no topo.
@@ -3517,6 +3614,8 @@ function renderPrincipal(): void {
   // Chat limpo (PR 7; QA do PR 398): o progresso das frentes muda só o bloco dele, dentro da fala, sem regravá-la. O bloco
   // trocado é medido de novo antes da pílula (PR 8): ela some com o bloco à vista, e a frente nova do lote muda o bloco.
   if (progressoNaTela.desenhar(conversaDaTela(estado), estado, memoriaNaFala()) > 0) rolagem.progressoTrocado();
+  // ADR-179: a tela em React monta na vaga que a região acabou de receber (ou desmonta, sem ela).
+  telasReact?.sincronizar(document.getElementById("timeline"));
   // Tela 18d: a página Tarefas de todos os bots também vive fora do reducer (relê sozinha no quadro.mudou).
   if (t.tipo === "tarefas") {
     tarefasDeTodos.abrir();
@@ -3726,6 +3825,8 @@ function regravarTimeline(corpo: string, partes: PartesDaTimeline | null, muda: 
   // ADR-051: o iframe do artefato sai antes de a timeline ser regravada e volta sem recarregar (moveBefore),
   // no hidratar() logo abaixo — depois de os <details> reabrirem; sem moveBefore, ele é recriado do cache.
   if (muda.historicoMuda) artefatos.estacionar();
+  // ADR-179: a tela em React desmonta antes de a vaga dela sair da região.
+  telasReact?.antesDeRegravar(corpo);
   regiao("timeline", corpo);
   if (muda.cascaMuda) {
     esquecerRegiao("timeline-historico");
@@ -8774,14 +8875,7 @@ const ACOES: Record<string, (el: HTMLElement) => Promise<void> | void> = {
   },
   // definido em 2026-09-24 (emenda da ADR-044): parada pelo pré-voo (`ids.bloqueada`), o teste não roda —
   // a conversa abre com o card de acesso "rotina parada" e o botão que a destrava; "Sua vez" relê.
-  "executar-rotina": (el) => agir(async () => {
-    const id = el.dataset.id ?? "";
-    // NOD-272: com execução já aberta, pergunta antes no diálogo próprio (A1 do Gil no #335); cancelar não roda nada.
-    const r = await executarRotinaComConfirmacao((o) => api!.executarRotina(id, o), (p) => abrirRodarMaisUma(p, el));
-    if (!r) return;
-    dispatch({ tipo: "invalidar", quais: ["rotinas", `execucoes:${el.dataset.id ?? ""}`, ...(r.ids.bloqueada ? (["sua-vez", `conversa:${r.ids.conversaId ?? ""}`] as const) : [])] });
-    navegar({ tipo: "conversa", conversaId: r.ids.conversaId ?? "", agenteId: el.dataset.agente ?? "" });
-  }),
+  "executar-rotina": (el) => executarRotina(el.dataset.id ?? "", el.dataset.agente ?? "", el),
   // NOD-84: o Copiar do endereço busca o inteiro na hora (só a dona; nunca fica no estado). ClipboardItem com a promessa
   // para o Safari não perder o gesto; sem ele, writeText. O ícone vira ✓ por 2 s e a região viva diz "Copiado".
   "webhook-copiar": (el) => copiarDoWebhook(el, async (id) => `${location.origin}${(await api!.enderecoWebhook(id)).caminho}`, "Endereço copiado"),
@@ -9058,7 +9152,7 @@ const ACOES: Record<string, (el: HTMLElement) => Promise<void> | void> = {
   "dispensar-incidente": (el) => agir(async () => void (await api!.dispensarIncidente(el.dataset.id ?? ""), dispatch({ tipo: "invalidar", quais: ["sua-vez"] }))),
   // definido em 2026-09-24 (ADR-044): o grupo (app · nível) do painel sai inteiro, com um registro só.
   "revogar-acessos": (el) => agir(async () => void (await api!.revogarAcessos(el.dataset.agente ?? "", (el.dataset.ids ?? "").split(",").filter(Boolean)), dispatch({ tipo: "invalidar", quais: [`concessoes:${el.dataset.agente ?? ""}`, "frota"] }))),
-  "pausar-rotina": (el) => agir(async () => void (await api!.pausarRotina(el.dataset.id ?? "", el.dataset.ate || undefined), dispatch({ tipo: "invalidar", quais: ["rotinas"] }))),
+  "pausar-rotina": (el) => pausarRotina(el.dataset.id ?? "", el.dataset.ate || undefined),
   // NOD-412: "Pausar até…" com data e hora escolhidas no campo ao lado (hora local, no fuso da rotina).
   "pausar-rotina-escolhida": (el) => {
     const campo = el.parentElement?.querySelector<HTMLInputElement>("input[data-ate-rotina]");
@@ -9066,13 +9160,8 @@ const ACOES: Record<string, (el: HTMLElement) => Promise<void> | void> = {
     if (!ate) { campo?.focus(); return; }
     agir(async () => void (await api!.pausarRotina(el.dataset.id ?? "", ate.slice(0, 16)), dispatch({ tipo: "invalidar", quais: ["rotinas"] })));
   },
-  "ativar-rotina": (el) => agir(async () => void (await api!.ativarRotina(el.dataset.id ?? ""), dispatch({ tipo: "invalidar", quais: ["rotinas"] }))),
-  "ver-execucoes": (el) => {
-    const id = el.dataset.id ?? "";
-    const abrindo = !estado.historicoAberto[id];
-    dispatch({ tipo: "alternar-historico", rotinaId: id });
-    if (abrindo) dispatch({ tipo: "invalidar", quais: [`execucoes:${id}`] });
-  },
+  "ativar-rotina": (el) => ativarRotina(el.dataset.id ?? ""),
+  "ver-execucoes": (el) => alternarExecucoes(el.dataset.id ?? ""),
   "sondar-conector": (el) => agir(async () => void (await api!.sondarConector(el.dataset.id ?? ""), dispatch({ tipo: "invalidar", quais: ["conectores", "frota"] }))),
   "habilitar-conector": (el) => agir(async () => void (await api!.habilitarConector(el.dataset.id ?? "", true), dispatch({ tipo: "invalidar", quais: ["conectores"] }))),
   "desabilitar-conector": (el) => agir(async () => void (await api!.habilitarConector(el.dataset.id ?? "", false), dispatch({ tipo: "invalidar", quais: ["conectores"] }))),
@@ -9592,10 +9681,7 @@ const ACOES: Record<string, (el: HTMLElement) => Promise<void> | void> = {
     if (el.closest(".cartao-pergunta")) anunciarPergunta("Pergunta deixada pra lá");
   }),
   // Em série: são poucas, e uma recusa no meio não deixa metade gravada sem a tela saber.
-  "limpar-vencidos": (el) => agir(async () => {
-    for (const id of (el.dataset.ids ?? "").split(",").filter(Boolean)) await api!.dispensar(id);
-    dispatch({ tipo: "invalidar", quais: ["sua-vez"] });
-  }),
+  "limpar-vencidos": (el) => limparVencidos((el.dataset.ids ?? "").split(",").filter(Boolean)),
 };
 
 const emitirChavePelaTela = umaPorVez(async (form: HTMLFormElement) => {

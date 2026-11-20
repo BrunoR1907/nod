@@ -56,6 +56,38 @@ inteira a cada desenho, com um Menu do Base UI por card); ela continua atrás de
 passos seguintes da fase: a página do quadro inteira num root que fica, os cards em JSX a partir da tarefa com um só
 "Mover para…", as jornadas de Chrome arrastando por ponteiro e o teste de mão antes de ligar por padrão.
 
+**As telas no lugar da conversa** (2026-11-19). Sua vez, Não lidos, Tarefas de todos, Trabalhos, Rotinas, Conectores,
+Novo bot e o quadro compartilhado ocupam a região `#timeline` no lugar da conversa e eram regravadas por `innerHTML`. A
+régua ganhou um cenário por tela (`tela-sua-vez`, `tela-nao-lidos`, `tela-trabalhos`, `tela-tarefas`: a tela aberta pela
+barra com 8 bots escrevendo, no banco do `povoar.ts`) e mostrou todas já abaixo do portão na `main` (maior tarefa 0 ms,
+TBT 0, tecla p95 ≤ 22 ms): aqui a migração é pelo código, não pela performance, e o portão é não piorar. O mecanismo:
+com uma tela migrada aberta, o main escreve na região só a vaga dela (`vagaDaTela`, `web/react/telas/telas.tsx`) e a tela
+monta ali um root próprio, que lê a loja (`useLoja`, só os pedaços que usa) e recebe as ações por prop; trocar de tela
+desmonta o root antes de a região ser regravada. Chave `?telas-react=0` (`react-na-regiao.ts`), ligada por padrão; com
+ela desligada (ou com o módulo a caminho), o desenho por string de sempre. A primeira é **Não lidos**
+(`web/react/telas/nao-lidos.tsx`), com o mesmo DOM da tela por string (o teste compara os dois): o teclado e o deslize do
+celular seguem nas mesmas classes. Na régua, Não lidos com 8 bots: 0 / 0 / 6,3 ms (maior tarefa / TBT / tecla p95) em
+React e 0 / 0 / 6,9 por string no mesmo build; 106 nós criados contra 147. A segunda é **Rotinas** (`web/react/telas/rotinas.tsx`): a estrutura
+e os botões da rotina em componentes (pausar, ativar, testar, execuções, conversa, nova rotina, ver a pergunta), com as
+ações extraídas no main em funções que a tela por string também chama; os pedaços que `web/lib/execucao.ts` monta para
+várias telas (a parada, a espera, onde roda) entram pelo conversor da ADR-189, com a ação deles na delegação, até
+`execucao.ts` virar componente. A terceira é a **nova conversa** (Novo bot, `web/react/telas/novo-bot.tsx`): o campo
+"Para:" fica sem controle do React e o filtro das linhas e as setas seguem com o main sobre o DOM (`filtrarBots`), refeito
+depois de cada desenho (`aoDesenhar`). O 1º desenho de cada tela é síncrono (`flushSync`), para o foco que o main põe
+no fim do render achar os nós. A quarta é **Tarefas de todos** (`web/react/telas/tarefas-de-todos.tsx`): o controlador
+(`web/lib/tarefas-de-todos-na-tela.ts`) segue lendo os quadros e relendo no `quadro.mudou` e passa a avisar quem assina
+(`dados`/`assinar`); a tela guarda a vista, a busca e os filtros. A vaga leva a classe do casco que o CSS lê
+(`tdt-casco`), mas não o `id="tdt"`: o controlador só desenha nele por string. Na régua, 0 / 0 / 6,2 ms em React e
+0 / 0 / 7,7 por string. A quinta é a tela **Tarefas** (`trabalhos`, ADR-187 §8; `web/react/telas/tarefas.tsx`), Por bot
+e Por estado: as regras (o grupo de cada bot, o título, as contas, o tempo, o passo) são as funções puras de
+`web/telas/tela-tarefas.ts`, exportadas e usadas pelas duas; o componente só troca a marcação. As esperas de colega
+(Cobrar, Desistir) e a pílula da cota entram pelo conversor. Também **Nova rotina** e o **novo chat em grupo** (Nova sala), os dois formulários:
+sem `data-form`, o envio é prop e chama o mesmo tratamento do main (`FORMS`) com o próprio formulário; os campos ficam
+sem controle do React. **Sua vez** (`web/react/telas/sua-vez.tsx`): a casca é componente (o título com a conta, o vazio, os
+fora do ar, os vencidos recolhidos e o "Limpar vencidos" por prop); os cartões de decisão são os mesmos da conversa
+(`renderItem`) e entram pelo conversor, com a chave `data-decisao` e as ações deles na delegação, até os cartões virarem
+componentes — um passo que vale para a conversa e para Sua vez de uma vez.
+
 A ordem das fases 2–6 é a proposta desta ADR (da menos para a mais quente); trocar a ordem não muda as regras acima.
 
 **A régua de fps e tarefa longa é o portão de cada fase.** Antes e depois de cada região, `node scripts/carga-tela/rodar.ts
