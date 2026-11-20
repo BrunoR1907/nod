@@ -100,6 +100,61 @@ ordem: o seletor de IA e a folha do "+", o
 ditado, e por fim o próprio campo (o `<textarea>` sem controle do React, com as menções e os comandos `/`), com as
 jornadas de Chrome de digitação, foco e acento em composição.
 
+**Os diálogos criados por código** (item 4; 2026-11-19), com o Dialog do Base UI (ADR-180), cada um com a volta
+`?dialogos-react=0`. O 1º é **o diálogo de handoff** do Quadro (`web/react/dialogos/handoff.tsx`): o mesmo conteúdo e as
+mesmas classes do `<dialog>` nativo, a mesma resposta (a promessa: não mover, ou mover parando ou não o anterior), o foco
+em "Mover" ao abrir, preso no diálogo e de volta a quem estava ao fechar. A escolha vale na hora do fechar; o root sai
+quando a saída termina, fechado pelo próprio Base UI (`actionsRef.close`); se o fim não for avisado em 1 s, o Base UI desmonta (`unmount`) — arrancar o root no meio do fechamento deixava o foco preso para o diálogo seguinte. O `quadro-na-tela`
+recebe quem abre o diálogo (`dialogoDeHandoff`); sem isso, o nativo. O 2º é **a confirmação** (`bot-dialogo`,
+`web/react/dialogos/confirmar.tsx`: título, texto, "Cancelar" com o foco e a ação), começando pelo "Rodar mais uma
+execução?" do Testar agora e o aviso dos termos da troca de conta (corpo próprio, "Cancelar" como o principal). O 3º é o
+"Conectar este Mac?" (ADR-069), com a ação assíncrona no próprio diálogo (o botão desligado no pedido, o erro e a volta). E
+**a paleta ⌘K** (ADR-167, `web/react/dialogos/paleta.tsx`): o mesmo DOM e o mesmo comportamento (combobox com
+`aria-activedescendant`, ↑ ↓, Enter, Esc, o fundo, o Tab de volta ao campo, o foco de volta ao fechar), com o termo e a
+seleção como estado e as regras de `web/lib/paleta.ts`; o main passa a usá-la quando o módulo dos diálogos chega. Os dois fecham pelo Base UI (`Dialog.Close`, `actionsRef.close`) com um fade curto de saída
+(sem movimento, some na hora). Achado da jornada de Chrome: numa aba headless sem foco emulado, o relógio das animações
+não anda só com o teclado — a saída nunca terminava e a página parecia inerte; com `Emulation.setFocusEmulationEnabled`
+(como na régua) ela anda como numa janela à vista. E **a prévia de arquivo** (NOD-327,
+`web/react/dialogos/previa-arquivo.tsx`): a mesma casca, o mesmo carregamento (a rota de anexos, os limites de tamanho e
+de 15 s) e os mesmos módulos de formato (`previa-csv`, `previa-pdf`), que desenham por conta própria no nó que o
+componente lhes entrega; o erro e a contagem são estado, fechar cancela o carregamento e o foco volta ao card (ou ao card
+novo do mesmo anexo na mesma casa, se a conversa redesenhou). Um controlador de cancelamento por execução do efeito: o
+StrictMode roda o efeito duas vezes, e o 2º não pode herdar o sinal já abortado. E **a tela cheia da mídia** (NOD-323,
+`web/react/dialogos/luz.tsx`): o DOM de `htmlDaLuz` (as classes e os `data-luz`), as setas que somem nas pontas passando
+o foco para a outra, ← →, o deslize, as miniaturas, o duplo clique no tamanho real, o clique fora da mídia que fecha, o
+vídeo com a barra mínima e as velocidades, e o Finder no Mac do arquivo; o item da vez, o tamanho real e o tempo do vídeo
+são estado. O popup é um `<div>` no portal (sem o top layer do `<dialog>`): `.luz.rx-luz` divide as regras de
+`dialog.luz` e fica por cima do app pelo `z-index`. E **a tela cheia do artefato** (`web/react/dialogos/artefato.tsx`): o
+mesmo cabeçalho e o mesmo iframe vivo, que `artefatos-vivos` segue montando (a ponte, o estado, as gravações) no corpo que
+o componente lhe dá (`telaCheiaPorFora`), pela ref com limpeza do React 19 — o portal põe o conteúdo depois do 1º
+efeito. A jornada de Chrome prova que o foco preso do Base UI deixa clicar e digitar dentro do iframe sandbox; o Esc
+dentro dele é do artefato, como no `<dialog>` nativo. E **o menu do bot** na lista (`web/react/dialogos/menu-do-bot.tsx`), pelo Menu do Base UI: as
+mesmas linhas (`linhasDoMenu`, que o HTML nativo também lê), ao lado da linha ou no cursor, deslizando para caber (sem
+virar de lado); o foco abre no 1º item, e a ação roda depois de o menu sair e de o foco voltar à linha — o foco é
+devolvido pelo componente, não pelo Base UI, cuja volta chegaria depois e tiraria o foco do que a ação abriu (Renomear).
+No celular, a folha curta e o bot segurado (NOD-379/382) seguem no `<dialog>`. O que ele faz de
+comum virou `MenuAncorado` (`web/react/dialogos/menu-ancorado.tsx`), que também serve **os menus da barra** (a aba de
+tarefa, os bots e as outras abas, a nova tarefa, os times; `abrirMenuDaBarra`): `web/react/dialogos/menu-de-html.tsx` lê o
+MESMO HTML do `<dialog>` nativo — o papel e o rótulo do `<div role="menu">` vão ao popup, o `<div>` fica com a classe que o
+CSS lê, cada botão vira item com os mesmos atributos e miolo, e a escolha recebe o botão. Uma diferença de propósito: o
+item desligado fica focável (e inerte), como a APG pede para menus; no nativo as setas o pulavam. Pelo mesmo caminho
+vão **o menu da pílula** (embaixo e centrado nela; as páginas seguem `menuitemradio`) e **o menu da fala** (reagir e ⋯; os
+emojis seguem `menuitemcheckbox`, o "+" troca a linha sem fechar e põe o foco no 1º emoji, ← → andam como ↓ ↑, e o
+"Desfazer" com `aria-disabled` não escolhe). O bot segurado e a fala segurada do celular seguem no `<dialog>`. E o **Compartilhar** da gaveta (`htmlMenuCompartilhar`). As folhas do celular (a do "+" do campo, a do Compartilhar do perfil) ficam no `<dialog>`: a do "+" precisa fechar antes de o seletor de arquivo abrir, o que o modal nativo já dá. E **o menu do modo de aprovação** (ADR-059, `web/react/dialogos/menu-modo.tsx`): o mesmo
+HTML e a mesma regra pura (`reagirMenuModo`), acima do botão com o foco no modo atual; a confirmação do total entra
+logo depois do item, com o foco em "Agora não", e o Esc com ela aberta fecha só ela (o fechamento do Base UI é cancelado
+pelo `reason` `escape-key`). E **o seletor de IA do campo** (`web/react/dialogos/menu-ia.tsx`): o botão fica onde está
+(filho do `.box`), só o menu muda — acima dele, alinhado à direita, com o foco na escolha atual; o main o fecha por código
+quando o campo troca de conversa.
+
+**As sobreposições do Base UI contam como modal para o main** (achado da migração dos menus). Os atalhos globais
+(`SELETOR_MODAL`), a camada sobre a busca, o Esc do quick chat, o Esc que fecha Seu espaço e os Esc das telas por baixo
+liam `dialog[open]`/`dialog:modal` ou `closest("dialog")` — e um diálogo ou menu do Base UI não é `<dialog>` (o popup
+vai para um portal no `body`). Cada host marca `data-rx-modal` enquanto existe; `SELETOR_SOBREPOSICAO` ("há algo por
+cima") e `SELETOR_DENTRO_DA_SOBREPOSICAO` ("o alvo está dentro de uma"), em `web/lib/atalhos.ts`, servem todos esses
+pontos. A tela cheia da ligação (`role="dialog"`) fica de fora de propósito: o Esc dela segue encolhendo. A trava do toque
+duplo da folha "+" vale no popup do Base UI, e o zoom (+/−) da prévia de PDF passou a ler o popup também.
+
 A ordem das fases 2–6 é a proposta desta ADR (da menos para a mais quente); trocar a ordem não muda as regras acima.
 
 **A régua de fps e tarefa longa é o portão de cada fase.** Antes e depois de cada região, `node scripts/carga-tela/rodar.ts

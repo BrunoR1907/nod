@@ -1,4 +1,5 @@
 import { criarFilaOffline, falhouPorRede, MOTIVO_OFFLINE } from "./lib/fila-offline.ts";
+import { abrirDialogoDeHandoff } from "./telas/dialogo-handoff.ts";
 import { marcarEstadoDaPagina } from "./lib/estado-da-pagina.ts";
 import { cancelarNaFila, desfazerCancelamento } from "./lib/cancelar-na-fila.ts";
 import { armazemComReserva, armazemDaFila, criarJournalDeEnvio, JournalEncerrado, tipoDaFalha, type ArmazemDoJournal, type Desfecho, type ItemDoJournal, type Journal } from "./lib/journal-envio.ts";
@@ -57,11 +58,11 @@ import type { TipoMemoria } from "../src/contracts/memoria.ts";
 import { criarIasDoMac } from "./lib/ias-do-mac.ts";
 import { instalarOrdemArrastavel } from "./lib/ordem-arrastavel.ts";
 import { chaveDoMenuDaIa, ordemDoPasso } from "./lib/ordem.ts";
-import { abrirFolhaCompartilhar, abrirMenu, abrirMenuCompartilhar, abrirFolhaDeAtalhos, abrirMenuConta, abrirSobreONod, confirmarExclusaoNaFolha, menuContaAberto, dialogo, pedirGestao, textoDuplicar, type BotGerido, type AcaoGestao } from "./telas/gestao-agentes.ts";
+import { abrirFolhaCompartilhar, abrirMenu, abrirMenuCompartilhar, htmlMenuCompartilhar, abrirFolhaDeAtalhos, abrirMenuConta, abrirSobreONod, confirmarExclusaoNaFolha, menuContaAberto, dialogo, pedirGestao, textoDuplicar, type BotGerido, type AcaoGestao } from "./telas/gestao-agentes.ts";
 import { perfilAoAbrir, perfilAoAbrirNivel, saidaDoPerfil } from "./telas/perfil-celular.ts";
 import { criarMarcaDoPerfil, planoDaSaida } from "./lib/lista-apos-saida.ts";
 import { rascunhoMudou } from "./telas/memoria.ts";
-import { abrirLuz } from "./telas/luz.ts";
+import { abrirLuz, type OpcoesLuz } from "./telas/luz.ts";
 import { baixarUrl } from "./telas/luz-html.ts";
 import { desmarcarIrCarregando, htmlDaNotaDoMenu, htmlDoMenuDaBiblioteca, marcarIrCarregando, NOTA_FALA_DEMOROU, NOTA_FALA_FORA, TEXTO_IR_CARREGANDO } from "./telas/biblioteca.ts";
 import { abrirDetalhesAcima, criarMenuDoIr, criarMundoDaFala, irParaFalaDaBiblioteca, levarAFalaComAte, notarVeio, soltarAlvoNaoDesenhado, type AlvoDaFala } from "./lib/ir-para-a-fala.ts";
@@ -76,7 +77,7 @@ import { controleDaFolha, linhasDoBot, linhasVisiveis, renderFolhaMais, rotuloDo
 import { abrirMenuModo } from "./lib/menu-modo.ts";
 import { abrirMenuIa } from "./lib/menu-ia.ts";
 import { dadosDoSeletor, mioloDoSeletor, pedidoDoSeletor, renderMenuIa, rotuloDoSeletor } from "./telas/seletor-ia.ts";
-import type { FormaAgente, CorAgente } from "../src/contracts/agente.ts";
+import type { FormaAgente, CorAgente, ModoAprovacao } from "../src/contracts/agente.ts";
 import type { AmbienteBancoDto, ModoSessaoDto } from "../src/contracts/api.ts";
 import type { PedidoInteligencia } from "../src/contracts/inteligencia.ts";
 import { abrir as abrirLote, cancelar as cancelarLote, marcar as marcarLote, marcarTodos as marcarTodosLote, previaDoLote, valorComum as valorComumLote, type AcaoLote, type IaDoLote, type LoteAgentes } from "./lib/lote-agentes.ts";
@@ -111,7 +112,7 @@ import { acaoDoErro, criarRegistroDeErros, detalhesDoErro, ehErroDeRede, erroDaA
 import { criarSondaDeRede } from "./lib/sonda-de-rede.ts";
 import { criarReleituraAdiada } from "./lib/releitura-adiada.ts";
 import { CHECK_CODIGO_MS, tabelaComo } from "./lib/texto-formatado.ts";
-import { CHAVE_GUARDADA, lerGuardado, lerPedido, PARAMETROS_DO_PEDIDO, type PedidoPareamento } from "./lib/parear-mac.ts";
+import { CHAVE_GUARDADA, lerGuardado, lerPedido, PARAMETROS_DO_PEDIDO, urlDeRetorno, type PedidoPareamento } from "./lib/parear-mac.ts";
 import { abrirPareamento } from "./telas/parear-mac.ts";
 import { abrirOiDeNovo, mostrarEsteComputador } from "./telas/oi-de-novo.ts";
 import { criarAvisador } from "./lib/avisador.ts";
@@ -120,7 +121,7 @@ import { criarPuxadorDeepLink, destinoDoAlvo, leituraConta } from "./lib/deep-li
 import { criarLiveEvents, type LiveEvents } from "./lib/live-events.ts";
 import { ehCelular } from "./lib/celular.ts";
 import { contextoDaPilula, executarNaPilula } from "./lib/setas-da-pilula.ts";
-import { alvoDoAtalho, atalhoDaNovaTarefa, atalhoDoNovoBot, atalhoDoTeclado, linhasDaFolha, lugarAtual, SELETOR_CAMPO, SELETOR_MODAL, teclasDoBot, type AcaoAtalho } from "./lib/atalhos.ts";
+import { alvoDoAtalho, atalhoDaNovaTarefa, atalhoDoNovoBot, atalhoDoTeclado, linhasDaFolha, lugarAtual, SELETOR_CAMPO, SELETOR_DENTRO_DA_SOBREPOSICAO, SELETOR_MODAL, SELETOR_SOBREPOSICAO, teclasDoBot, type AcaoAtalho } from "./lib/atalhos.ts";
 import { rotuloDoMac } from "./lib/aparelho.ts";
 import { criarCelular, SELETOR_INTERATIVO } from "./lib/gaveta-bots.ts";
 import { tentarFrotaAgora } from "./lib/tentar-frota.ts";
@@ -269,7 +270,7 @@ import type { EstadoTrabalho, TipoLinha } from "../src/contracts/trabalho.ts";
 import { ajusteDoHash, ajustePorId, linkDoAjuste } from "./lib/ajustes.ts";
 import { aplicarBalaoCor, lerBalaoCor } from "./lib/balao.ts";
 import { criarVigiaDeSons, gravarSons, lerSons, notasDoSom, tocarNotas, type ContextoDeAudio, type TipoSom } from "./lib/sons.ts";
-import { criarPaleta } from "./lib/paleta-na-tela.ts";
+import { criarPaleta, type DepsPaleta } from "./lib/paleta-na-tela.ts";
 import { itensDaPaleta, type ItemPaleta } from "./lib/paleta.ts";
 import { aguardandoPorAgente, contadorDosTrabalhos, rotuloDosTrabalhos, textoAguardando } from "./lib/aguardando.ts";
 import { pedidosAbertos } from "./lib/avisos.ts";
@@ -282,7 +283,7 @@ import { anuncioDosSubagentes, blocosAoVivoDaTask, blocosDoHistoricoDaTask, rend
 import { botsDaNovaTarefa, htmlDoMenuDaNovaTarefa, htmlDoMenuDeBots, renderTelaTarefas } from "./telas/tela-tarefas.ts";
 import { campoDaTarefa, htmlSaidaDaParada, perguntaAberta, TEXTO_CONTINUAR, type CampoDaTarefa } from "./telas/tarefa-detalhada.ts";
 import { sinalDoBot, sinalNaGrade } from "./telas/linha-do-dono.ts";
-import { executarRotinaComConfirmacao } from "./lib/executar-rotina.ts";
+import { executarRotinaComConfirmacao, TITULO_JA_NA_FILA } from "./lib/executar-rotina.ts";
 import { copiarPorSelecao, type DocParaCopiar } from "./lib/copiar-por-selecao.ts";
 import { criarBuscaNaConversa } from "./telas/busca-na-conversa.ts";
 import { ligarTopoEncolhe, ROLAVEIS_DO_TOPO } from "./lib/topo-encolhe.ts";
@@ -307,7 +308,7 @@ const MOD_DA_PALETA = LUGAR_TECLADO === "app-mac" ? "⌘" : LUGAR_TECLADO === "n
  * ADR-167 (tela 08): a paleta ⌘K de tudo. Os itens saem do estado na hora de abrir: os bots na ordem da barra (o DOM, como
  * o ⌘1–9), os trabalhos do mais recente, os ajustes do catálogo e as ações. Ela vive fora do render() (web/lib/paleta-na-tela.ts).
  */
-const paleta = criarPaleta({
+const depsDaPaleta: DepsPaleta = {
   doc: document,
   itens: () => {
     const agentes = estado.frota?.agentes ?? [];
@@ -331,7 +332,15 @@ const paleta = criarPaleta({
   },
   avatar: (agenteId) => { const a = estado.frota?.agentes.find((x) => x.id === agenteId); return a ? iconeAgente(a, "") : ""; },
   executar: (item) => executarDaPaleta(item),
-});
+};
+/** ADR-179 (item 4): a paleta em React quando o módulo dos diálogos chegou (`?dialogos-react=0`: a por string). */
+const paletaPorString = criarPaleta(depsDaPaleta);
+let paletaReact: ReturnType<typeof criarPaleta> | null = null;
+const paleta = {
+  abrir: () => (paletaReact ?? paletaPorString).abrir(),
+  fechar: () => { paletaPorString.fechar(); paletaReact?.fechar(); },
+  aberta: () => paletaPorString.aberta() || !!paletaReact?.aberta(),
+};
 
 const MODO_NA_PALETA: Readonly<Record<string, string>> = { manual: "Manual", automatico: "Automático", total: "Total" };
 
@@ -1224,9 +1233,17 @@ window.matchMedia("(max-width: 1099px)").addEventListener("change", marcarPainel
 const canvasNaTela = criarCanvasNaTela(document, { api: () => api, conversa: () => conversaAtual()?.conversaId ?? null, irParaConversa: () => quadroNaTela.irPara(0),
   mascote: (id) => { const a = estado.frota?.agentes.find((x) => x.id === id); return a ? iconeAgente(a, "sm") : null; } });
 configurarAppCanvas({ ler: () => (api ? api.appCanvas() : null), aoMudar: () => render() });
+/** ADR-179 (item 4): os diálogos criados por código já em React (web/react/dialogos/); `?dialogos-react=0` volta aos nativos. */
+let moduloDosDialogos: typeof import("./react/dialogos/dialogos.tsx") | null = null;
+if (reactNaRegiao("dialogos", window.location.href, guardadoDoNavegador())) {
+  void import("./react/dialogos/dialogos.tsx").then((m) => { moduloDosDialogos = m; paletaReact = m.criarPaletaNoReact(depsDaPaleta); }, () => {
+    // Sem o módulo, os diálogos nativos de sempre.
+  });
+}
 const quadroNaTela = criarQuadroNaTela(document, {
   // ADR-180: a grade do quadro em React, ligada por padrão (`?quadro-react=0` volta à por string neste navegador).
   gradeReact: reactNoQuadro(location.href, (() => { try { return localStorage; } catch { return null; } })()),
+  dialogoDeHandoff: (doc, d, agora) => (moduloDosDialogos ? moduloDosDialogos.abrirHandoffNoReact(doc as Document, d, agora) : abrirDialogoDeHandoff(doc, d, agora)),
   // ADA-8: a pílula tem um dono só para o dedo (web/lib/gesto-da-pilula-na-tela.ts); a busca e o menu entram por aqui.
   busca: {
     ativa: () => celular.ativo() && chaveDaTelaDeBusca() !== null,
@@ -1434,6 +1451,7 @@ const artefatos = criarArtefatosVivos({
   carregar: (id, versao) => (api ? api.versaoArtefato(id, versao) : Promise.reject(new ErroApi(401, "nao_permitido", "sem sessão"))),
   salvar: (id, dados) => (api ? api.salvarEstadoArtefato(id, dados) : Promise.reject(new ErroApi(401, "nao_permitido", "sem sessão"))),
   salvarAoSair: (id, dados) => api?.salvarEstadoArtefatoAoSair(id, dados),
+  telaCheiaPorFora: () => { const m = moduloDosDialogos; return m ? (d) => m.abrirArtefatoNoReact(document, d) : null; },
 });
 /**
  * Diagrama mermaid no balão do bot (NOD-328): o renderizador é um iframe sandbox de origem opaca que importa o módulo
@@ -2328,7 +2346,11 @@ function ativarRotina(id: string): Promise<void> {
 function executarRotina(id: string, agenteId: string, ancora: HTMLElement): Promise<void> {
   return agir(async () => {
     // NOD-272: com execução já aberta, pergunta antes no diálogo próprio (A1 do Gil no #335); cancelar não roda nada.
-    const r = await executarRotinaComConfirmacao((o) => api!.executarRotina(id, o), (p) => abrirRodarMaisUma(p, ancora));
+    // ADR-179 (item 4): a confirmação pelo Dialog do Base UI (o mesmo texto); sem o módulo, o diálogo nativo.
+    const perguntar = (p: string): Promise<boolean> => (moduloDosDialogos
+      ? moduloDosDialogos.confirmarNoReact(document, { idDoTitulo: "rodar-mais-uma-titulo", titulo: TITULO_JA_NA_FILA, texto: p, cancelar: "Cancelar", confirmar: "Rodar mais uma", origem: ancora })
+      : abrirRodarMaisUma(p, ancora));
+    const r = await executarRotinaComConfirmacao((o) => api!.executarRotina(id, o), perguntar);
     if (!r) return;
     dispatch({ tipo: "invalidar", quais: ["rotinas", `execucoes:${id}`, ...(r.ids.bloqueada ? (["sua-vez", `conversa:${r.ids.conversaId ?? ""}`] as const) : [])] });
     navegar({ tipo: "conversa", conversaId: r.ids.conversaId ?? "", agenteId });
@@ -3389,7 +3411,7 @@ function podeBuscarNaConversa(): boolean {
 /** Seu espaço, ligação em tela cheia, onboarding ou um diálogo cobrem a conversa (o `.app` fica inerte). */
 function camadaSobreABusca(): boolean {
   // A busca geral do celular (NOD-380) e a inicial dos bots (NOD-379) também cobrem a conversa.
-  return !!estado.espaco || telaLigacao.cheia() || telaOnboarding.cobre() || !!document.querySelector("dialog:modal")
+  return !!estado.espaco || telaLigacao.cheia() || telaOnboarding.cobre() || !!document.querySelector("dialog:modal") || !!document.querySelector("[data-rx-modal]")
     || !!document.querySelector(".busca-celular:not(.saindo)") || celular.botsAbertos();
 }
 
@@ -3449,7 +3471,11 @@ function abrirMenuDaPilula(ancora: HTMLElement, itens: readonly ItemDoMenuDaPilu
   const botoes = itens.map((it) => it.tipo === "buscar"
     ? `<button type="button" role="menuitem" data-pilula="buscar">${lupa}Buscar na conversa</button>`
     : `<button type="button" role="menuitemradio" data-pilula="pagina" data-pos="${it.pos}" aria-checked="${it.atual}">${esc(it.nome)}</button>`).join("");
-  const d = dialogo(`<div role="menu" aria-label="Conversa">${botoes}</div>`, true);
+  const html = `<div role="menu" aria-label="Conversa">${botoes}</div>`;
+  const escolher = (b: HTMLElement): void => { if (b.dataset.pilula === "buscar") abrirBuscaNaConversa(); else irPara(Number(b.dataset.pos)); };
+  // ADR-179: o do Base UI, embaixo da pílula e centrado nela (como o nativo), quando o módulo dos diálogos chegou.
+  if (moduloDosDialogos) { moduloDosDialogos.abrirMenuDeHtmlNoReact(document, { html, ancora, lado: "bottom", alinhar: "center", distancia: 8, classe: "menu-pilula", aoEscolher: escolher }); return; }
+  const d = dialogo(html, true);
   d.classList.add("menu-pilula");
   const r = ancora.getBoundingClientRect();
   d.style.left = `${Math.max(12, Math.min(r.left + r.width / 2 - d.offsetWidth / 2, window.innerWidth - d.offsetWidth - 12))}px`;
@@ -3468,8 +3494,7 @@ function abrirMenuDaPilula(ancora: HTMLElement, itens: readonly ItemDoMenuDaPilu
     const b = (e.target as HTMLElement).closest<HTMLElement>("[data-pilula]");
     if (!b) return;
     d.close();
-    if (b.dataset.pilula === "buscar") abrirBuscaNaConversa();
-    else irPara(Number(b.dataset.pos));
+    escolher(b);
   });
 }
 
@@ -4067,11 +4092,11 @@ function agenteDoSeletor(): string | null {
 }
 
 /** O menu do seletor de IA aberto (um por vez) e se um clique dele ainda está gravando. */
-let menuIa: HTMLDialogElement | null = null;
+let menuIa: { fechar: () => void } | null = null;
 let gravandoIa = false;
 
 function fecharMenuIa(): void {
-  if (menuIa?.open) menuIa.close();
+  menuIa?.fechar();
   menuIa = null;
 }
 
@@ -4085,7 +4110,11 @@ function abrirSeletorIa(el: HTMLElement): void {
   const d = agenteDoSeletor() ? dadosDoSeletor(estado, agenteDoSeletor()!) : null;
   if (!a || !d || !d.dona || gravandoIa || estado.ocupado) return;
   const chave = composerDe;
-  menuIa = abrirMenuIa(el, renderMenuIa(d), (escolha) => {
+  // ADR-179: o do Base UI quando o módulo dos diálogos chegou (o mesmo HTML); senão, o <dialog>.
+  const abrir = moduloDosDialogos
+    ? moduloDosDialogos.abrirMenuIaNoReact.bind(null, document)
+    : (...args: Parameters<typeof abrirMenuIa>) => { const dlg = abrirMenuIa(...args); return { fechar: () => { if (dlg.open) dlg.close(); } }; };
+  menuIa = abrir(el, renderMenuIa(d), (escolha) => {
     menuIa = null;
     if (escolha.tipo === "provedores") { abrirEspaco("conexao"); return; }
     if (composerDe !== chave || gravandoIa) return;
@@ -4158,7 +4187,9 @@ function linhasDaFolhaMais(): LinhasDaFolhaMais {
 function travarToqueDuplo(): void {
   const abertos = document.querySelectorAll<HTMLDialogElement>("dialog[open]");
   const d = abertos[abertos.length - 1];
-  if (d) travarToqueDuploEm(d);
+  if (d) { travarToqueDuploEm(d); return; }
+  // ADR-179: o menu do Base UI (modo, IA) monta o popup um quadro depois, no portal.
+  requestAnimationFrame(() => { const menus = document.querySelectorAll<HTMLElement>(".rx-menu"); const m = menus[menus.length - 1]; if (m) travarToqueDuploEm(m); });
 }
 
 /** O + só aparece quando a folha teria o que mostrar (bot de outra pessoa sem anexo, frota ainda chegando: escondido). */
@@ -4214,9 +4245,12 @@ function abrirModoAprovacao(el: HTMLElement): void {
   const bot = t.tipo === "conversa" ? botGerido(t.agenteId) : undefined;
   if (!bot || bot.ownerId !== estado.sessao?.pessoaId) return;
   // O total só chega aqui com `confirmado` (o segundo clique do menu); a linha de sistema na conversa confirma a troca.
-  abrirMenuModo(el, bot.nome, bot.modoAprovacao ?? "manual", (modo, confirmado) => {
+  const escolher = (modo: ModoAprovacao, confirmado: boolean): void => {
     void agir(async () => { await mudarGestao(() => api!.mudarModoAprovacao(bot.id, modo, confirmado)); });
-  }, estado.frota?.revisor === true);
+  };
+  // ADR-179: o do Base UI quando o módulo dos diálogos chegou (o mesmo HTML e a mesma regra do menu nativo).
+  const abrir = moduloDosDialogos ? moduloDosDialogos.abrirMenuModoNoReact.bind(null, document) : abrirMenuModo;
+  abrir(el, bot.nome, bot.modoAprovacao ?? "manual", escolher, estado.frota?.revisor === true);
 }
 
 /**
@@ -5018,7 +5052,13 @@ const PAREAR_PROVISORIO = "Para conectar o app do Mac, entre primeiro na sua con
 function seguirPareamento(passo: PassoPareamento): void {
   const pedido = pedidoPendente();
   if (!pedido || !api || passo === "esperar" || document.getElementById("parear-titulo")) return;
-  if (passo === "abrir") abrirPareamento(api, pedido, esquecerPedido);
+  if (passo === "abrir") {
+    // ADR-179 (item 4): pelo Dialog do Base UI; sem o módulo, o diálogo nativo.
+    const a = api;
+    if (moduloDosDialogos) moduloDosDialogos.abrirPareamentoNoReact(document, { nome: pedido.nome, aoFechar: esquecerPedido,
+      conectar: async () => { const { codigo } = await a.parearMac(pedido.nome, pedido.desafio); esquecerPedido(); window.location.href = urlDeRetorno(pedido, codigo); } });
+    else abrirPareamento(api, pedido, esquecerPedido);
+  }
   else void telaConta.abrir("entrar", true, PAREAR_PROVISORIO);
 }
 
@@ -5549,7 +5589,7 @@ function abrirMenuDaAba(id: string, ancora: HTMLElement, ponto?: { x: number; y:
   // Validação de 2026-11-18: o chevron fica à vista enquanto o menu da aba está aberto.
   abaComMenu = id;
   ancora.closest<HTMLElement>(".at-aba")?.classList.add("menu-aberto");
-  const menu = abrirMenuDaBarra(htmlDoMenuDaAba(tr, { fazerNaConversa: acoesDeFazer(tr, estado, tr?.conversaId) !== "" }), ancora, ponto ?? { x: r.left - 4, y: r.bottom }, (b) => {
+  abrirMenuDaBarra(htmlDoMenuDaAba(tr, { fazerNaConversa: acoesDeFazer(tr, estado, tr?.conversaId) !== "" }), ancora, ponto ?? { x: r.left - 4, y: r.bottom }, (b) => {
     const acao = b.dataset.abaAcao;
     if (acao === "renomear") comecarRenomeio(id);
     else if (acao === "fazer-aqui") void agir(async () => {
@@ -5563,11 +5603,10 @@ function abrirMenuDaAba(id: string, ancora: HTMLElement, ponto?: { x: number; y:
       await api!.pararTrabalho(id);
       dispatch({ tipo: "invalidar", quais: [`trabalho:${id}`, "trabalhos"] });
     });
-  });
-  menu.addEventListener("close", () => {
+  }, false, () => {
     abaComMenu = null;
     document.querySelector(`#cabecalho .at-aba[data-aba="${CSS.escape(id)}"]`)?.classList.remove("menu-aberto");
-  }, { once: true });
+  });
 }
 
 /** "Todos os bots ▾" da tela Tarefas (ADR-187 §8, Paper 5a): escolher um bot filtra as duas vistas; "Todos os bots" volta. */
@@ -5843,7 +5882,18 @@ function abrirPainelDoBot(): void {
 function menuDoBot(el: HTMLElement): void {
   const a = botGerido(el.dataset.id);
   // ADR-125: o ⋯ saiu do topo da gaveta; o menu mora na linha da lista (clique direito, Shift+F10, toque longo e o ⋯ no toque).
-  if (a) abrirMenu(a, a.ownerId === estado.sessao?.pessoaId, el, (acao) => acaoDoBot(a, acao));
+  if (a) abrirMenuDoBot(a, el);
+}
+
+/**
+ * O menu do bot ao lado da linha (ou no cursor): o do Base UI quando o módulo dos diálogos chegou (ADR-179), fora do
+ * celular — lá ele é a folha curta e o bot segurado (NOD-379/382), que seguem no `<dialog>`.
+ */
+function abrirMenuDoBot(a: BotGerido, ancora: HTMLElement, ponto?: { x: number; y: number }): void {
+  const dona = a.ownerId === estado.sessao?.pessoaId;
+  const executar = (acao: AcaoGestao): void => acaoDoBot(a, acao);
+  if (moduloDosDialogos && !celular.ativo()) moduloDosDialogos.abrirMenuDoBotNoReact(document, { a, dona, ancora, ponto, executar });
+  else abrirMenu(a, dona, ancora, executar, ponto);
 }
 
 function conversaAtual(): { conversaId: string; salaId: string | null } | null {
@@ -6665,7 +6715,7 @@ document.addEventListener("change", (ev) => {
 });
 document.addEventListener("keydown", (ev) => {
   // Esc no Quick Chat esconde a janela, salvo quando outro Esc está em uso (menu, diálogo, sugestão do composer).
-  if (!modoQuickChat || ev.key !== "Escape" || ev.defaultPrevented || document.querySelector("dialog[open]")) return;
+  if (!modoQuickChat || ev.key !== "Escape" || ev.defaultPrevented || document.querySelector(SELETOR_SOBREPOSICAO)) return;
   void window.nodDesktop?.quickChatEsconder?.();
 });
 
@@ -6725,10 +6775,26 @@ function abrirMenuDaFala(ancora: HTMLElement, tipo: "reagir" | "mais"): void {
   const fala = falaPorId(ancora.dataset.id ?? "");
   if (!fala) return;
   const bot = botDaFala(fala, estado);
-  const d = dialogo(tipo === "reagir" ? htmlSeletorDeReacao(fala, estado) : htmlMenuDaFala(fala, estado, !!bot && comQuadro(bot)), true);
-  d.classList.add("menu-fala");
-  d.setAttribute("aria-label", tipo === "reagir" ? "Reagir a esta mensagem" : "Mais ações da mensagem");
+  const html = tipo === "reagir" ? htmlSeletorDeReacao(fala, estado) : htmlMenuDaFala(fala, estado, !!bot && comQuadro(bot));
+  const rotulo = tipo === "reagir" ? "Reagir a esta mensagem" : "Mais ações da mensagem";
   ancora.setAttribute("aria-expanded", "true");
+  // ADR-179: o do Base UI quando o módulo dos diálogos chegou: o mesmo HTML; o "+" troca a linha de emojis sem fechar.
+  if (moduloDosDialogos) {
+    moduloDosDialogos.abrirMenuDeHtmlNoReact(document, {
+      html, rotulo, ancora, lado: "bottom", alinhar: "start", distancia: 6, classe: "menu-fala", setasDosLados: true,
+      expandir: { seletor: "[data-reacao-mais]", html: () => html.replace(/<div class="linha-emojis[\s\S]*?<\/div>/, linhaDeEmojis(fala, estado, true)), focar: ".linha-emojis button" },
+      aoFechar: () => ancora.setAttribute("aria-expanded", "false"),
+      aoEscolher: (b) => {
+        const emoji = b.dataset.reacao;
+        if (emoji) { void alternarReacao(fala, emoji); return; }
+        if (b.dataset.fala) acaoDoMenuDaFala(fala, b.dataset.fala, ancora);
+      },
+    });
+    return;
+  }
+  const d = dialogo(html, true);
+  d.classList.add("menu-fala");
+  d.setAttribute("aria-label", rotulo);
   d.addEventListener("close", () => ancora.setAttribute("aria-expanded", "false"));
   const posicionar = (): void => {
     const r = ancora.getBoundingClientRect();
@@ -7403,7 +7469,8 @@ const contasDoMac = criarContasDoMac({
   ui: () => estado.iasMac,
   mudar: (mudanca: Partial<UiIas>) => dispatch({ tipo: "ias-mac", mudanca }),
   confirmar: (texto) => window.confirm(texto),
-  avisarTermos: abrirAvisoDosTermos,
+  // ADR-179 (item 4): pela confirmação do Base UI; sem o módulo, o diálogo nativo.
+  avisarTermos: (ia) => (moduloDosDialogos ? moduloDosDialogos.avisarTermosNoReact(document, ia) : abrirAvisoDosTermos(ia)),
 });
 void contasDoMac.iniciar();
 // ADR-102 (2026-10-13): a lista única de contas de IA, em todas as máquinas (web/lib/contas-da-pessoa.ts).
@@ -7428,7 +7495,8 @@ const contasDaPessoa = criarContasDaPessoa({
     const ponte = window.nodDesktop?.contas;
     return ponte ? ponte.adicionar(ia, apelido ?? "").catch(() => false) : false;
   },
-  avisarTermos: abrirAvisoDosTermos,
+  // ADR-179 (item 4): pela confirmação do Base UI; sem o módulo, o diálogo nativo.
+  avisarTermos: (ia, conta) => (moduloDosDialogos ? moduloDosDialogos.avisarTermosNoReact(document, ia, conta) : abrirAvisoDosTermos(ia, conta)),
   cifrar: (chave, codigo) => cifrarCodigo(chave, codigo),
   agendar: (fn, ms) => { window.setTimeout(fn, ms); },
   agora: Date.now,
@@ -7470,18 +7538,20 @@ const midiaDom: OpcoesMidiaDom = {
 };
 instalarMidiaDom(midiaDom);
 const opcoesDaLuz = midiaDom.ponte ? { finder: (it: { url: string }) => { void mostrarNoFinder(it.url, midiaDom).then((ok) => { if (!ok) anunciar("O arquivo não está mais na pasta do bot"); }); } } : {};
+/** A tela cheia da mídia: a do Base UI quando o módulo dos diálogos chegou (ADR-179); senão, a nativa. */
+const abrirTelaCheiaDaMidia = (el: HTMLElement, o: OpcoesLuz): void => { if (moduloDosDialogos) moduloDosDialogos.abrirLuzNoReact(document, el, o); else abrirLuz(el, o); };
 /** Abre a mídia na tela cheia; pelo link `nod-anexo:` do texto, acha a mídia da mesma fala (ou o cartão do arquivo). */
 function abrirMidia(el: HTMLElement): void {
   // A mídia que não carregou: o próprio botão é o "Tentar de novo" (clique, Enter ou espaço).
-  if (el.closest(".msg-midias")) { if (el.closest(".falhou")) tentarDeNovo(el); else abrirLuz(el, opcoesDaLuz); return; }
+  if (el.closest(".msg-midias")) { if (el.closest(".falhou")) tentarDeNovo(el); else abrirTelaCheiaDaMidia(el, opcoesDaLuz); return; }
   const id = el.dataset.anexoId ?? "";
   const grupo = el.closest("[data-mensagem]")?.querySelector<HTMLElement>(".msg-midias");
   const alvo = grupo?.querySelector<HTMLElement>(`[data-anexo-id="${CSS.escape(id)}"]`);
-  if (alvo && acaoDoAlvo(alvo.dataset.act, false, false) === "luz") { abrirLuz(alvo, opcoesDaLuz); return; }
+  if (alvo && acaoDoAlvo(alvo.dataset.act, false, false) === "luz") { abrirTelaCheiaDaMidia(alvo, opcoesDaLuz); return; }
   // Na tela cheia, mas sem botão à vista (atrás do "+N"): abre nela a partir da primeira mídia da fala.
   const k = indiceNaLuz(grupo?.dataset.luz, id);
   const primeira = grupo?.querySelector<HTMLElement>('[data-act="midia-abrir"]');
-  if (k >= 0 && primeira) { abrirLuz(primeira, { ...opcoesDaLuz, indice: k }); return; }
+  if (k >= 0 && primeira) { abrirTelaCheiaDaMidia(primeira, { ...opcoesDaLuz, indice: k }); return; }
   if (!alvo) return anunciar("Esse arquivo não está nesta mensagem");
   const previa = alvo.querySelector<HTMLElement>('[data-act="previa-arquivo"]');
   const link = alvo.querySelector<HTMLAnchorElement>("a[href]");
@@ -8499,7 +8569,8 @@ const ACOES: Record<string, (el: HTMLElement) => Promise<void> | void> = {
   "escolher-missao": (el) => responderBoasVindas(el.dataset.texto ?? ""),
   // NOD-56: a captura da tela do bot ao fim do turno, ampliada sobre a conversa.
   // NOD-327: o card de CSV/PDF abre a prévia num modal claro sobre a conversa.
-  "previa-arquivo": (el) => { abrirPreviaArquivo(el); },
+  // ADR-179 (item 4): pelo Dialog do Base UI; sem o módulo, a sobreposição nativa.
+  "previa-arquivo": (el) => { if (moduloDosDialogos) moduloDosDialogos.abrirPreviaNoReact(document, el); else abrirPreviaArquivo(el); },
   // NOD-96 (v2): Abrir leva à tela cheia em Assistindo (no pedido de ajuda, já no controle). Sem v2, o diálogo de antes.
   // ADA-13: o card do canvas no chat abre a página Canvas do bot, já nesse canvas.
   "abrir-canvas": (el) => {
@@ -8574,7 +8645,18 @@ const ACOES: Record<string, (el: HTMLElement) => Promise<void> | void> = {
   // ADR-125: Acordar, na aba Computador, é o mesmo ligar; o pulso seguinte lê o estado novo.
   "computador-acordar": (el) => ligarComputador(el.dataset.id ?? "", "acordar"),
   // ADR-125 (NOD-349): o topo da gaveta, as abas e o popover do avatar.
-  "gaveta-compartilhar": (el) => { const a = botGerido(el.dataset.id); if (a) abrirMenuCompartilhar(a, el, (acao) => acaoDoBot(a, acao)); },
+  "gaveta-compartilhar": (el) => {
+    const a = botGerido(el.dataset.id);
+    if (!a) return;
+    // ADR-179: o do Base UI (embaixo do botão, pela esquerda, a 6 px), quando o módulo dos diálogos chegou.
+    if (!moduloDosDialogos) { abrirMenuCompartilhar(a, el, (acao) => acaoDoBot(a, acao)); return; }
+    el.setAttribute("aria-expanded", "true");
+    moduloDosDialogos.abrirMenuDeHtmlNoReact(document, {
+      html: htmlMenuCompartilhar(a), ancora: el, lado: "bottom", alinhar: "start", distancia: 6, classe: "menu-compartilhar",
+      aoFechar: () => el.setAttribute("aria-expanded", "false"),
+      aoEscolher: (b) => acaoDoBot(a, b.dataset.gestao as "copiar" | "duplicar"),
+    });
+  },
   "gaveta-aba": (el) => escolherAba(el.dataset.id ?? "", el.dataset.aba ?? ""),
   // NOD-326: a aba Biblioteca.
   "biblioteca-mais": (el) => void mostrarMaisNaBiblioteca(el.dataset.id ?? "", el.dataset.grupo ?? ""),
@@ -10419,9 +10501,9 @@ document.addEventListener("keydown", (ev) => {
   }
   if (ev.key === "Escape" && (ev.target as HTMLElement).id === "busca-bots") { fecharBusca(); return; }
   // ADR-095: Esc com o ditado aberto joga a gravação fora (no campo fica o que já estava escrito).
-  if (ev.key === "Escape" && ditado.ativo() && !(ev.target as HTMLElement).closest?.("dialog")) { ev.preventDefault(); ditado.descartar(); return; }
+  if (ev.key === "Escape" && ditado.ativo() && !(ev.target as HTMLElement).closest?.(SELETOR_DENTRO_DA_SOBREPOSICAO)) { ev.preventDefault(); ditado.descartar(); return; }
   // Esc na ligação em tela cheia encolhe para a pílula; nunca desliga (definido em 2026-10-04).
-  if (ev.key === "Escape" && telaLigacao.cheia() && !(ev.target as HTMLElement).closest?.("dialog")) { ev.preventDefault(); telaLigacao.encolher(); return; }
+  if (ev.key === "Escape" && telaLigacao.cheia() && !(ev.target as HTMLElement).closest?.(SELETOR_DENTRO_DA_SOBREPOSICAO)) { ev.preventDefault(); telaLigacao.encolher(); return; }
   // Chat limpo (PR 8): Esc dentro da pílula alargada fecha e devolve o foco a ela (web/lib/pilula-na-tela.ts).
   if (teclaNaPilula(ev.key, estado.faixaTrabalhosAberta !== null) === "fechar" && (ev.target as HTMLElement).closest?.("#faixa-trabalhos")) { ev.preventDefault(); dispatch({ tipo: "faixa-trabalhos", agenteId: null }); return; }
   // NOD-368: Esc fecha o seletor do lote (o foco volta ao botão que o abriu) antes de fechar Seu espaço.
@@ -10436,7 +10518,7 @@ document.addEventListener("keydown", (ev) => {
   }
   // QA da NOD-370: com o confirmar aberto e o pedido andando, os botões dele ficam desativados e o foco cai no <body>; o Esc
   // não fecha Seu espaço por trás do diálogo.
-  if (ev.key === "Escape" && estado.espaco && !(ev.target as HTMLElement).closest?.("dialog") && !document.querySelector("dialog[open]")) {
+  if (ev.key === "Escape" && estado.espaco && !(ev.target as HTMLElement).closest?.(SELETOR_DENTRO_DA_SOBREPOSICAO) && !document.querySelector(SELETOR_SOBREPOSICAO)) {
     ev.preventDefault();
     // Em Rotinas, o Esc fecha antes o que está aberto (o menu, a folha ou a rotina aberta).
     const ag = secaoAberta(estado) === "rotinas" ? escNaAgenda(estado.agenda.ui) : null;
@@ -10461,20 +10543,20 @@ document.addEventListener("keydown", (ev) => {
     if (alvo !== null) { ev.preventDefault(); focaveis[alvo]?.focus(); return; }
   }
   // Sem gaveta, Esc no Marketplace volta para onde a pessoa estava (definido em 2026-10-04) — menos digitando num campo.
-  if (ev.key === "Escape" && estado.tela.tipo === "conectores" && estado.tela.voltar && !celular.botsAbertos() && !(ev.target as HTMLElement).closest?.("dialog, input, textarea, select")) { ev.preventDefault(); void ACOES["voltar-conexao"]?.(document.body); return; }
+  if (ev.key === "Escape" && estado.tela.tipo === "conectores" && estado.tela.voltar && !celular.botsAbertos() && !(ev.target as HTMLElement).closest?.(`${SELETOR_DENTRO_DA_SOBREPOSICAO}, input, textarea, select`)) { ev.preventDefault(); void ACOES["voltar-conexao"]?.(document.body); return; }
   // A tela da task (e a provisória de uma linha) fecha no Esc — menos com algo digitado no campo dela.
   // NOD-379: com a inicial do celular à vista, o Esc não age na tela escondida por baixo (Marketplace, Trabalho, linha).
   // ADR-187 §6 (lote B, passo 4, 2026-11-18; Paper 4k: "Esc para parar"): com a tarefa trabalhando, o Esc a para — também
   // com o recado pela metade no campo (o rascunho fica). Menu, diálogo e o nome em edição têm o Esc deles antes.
-  if (ev.key === "Escape" && !ev.defaultPrevented && estado.tela.tipo === "trabalho" && campoDaTela(estado.tela.id).parar && !celular.botsAbertos() && !buscaNaConversa.aberta() && !ditado.ativo() && !document.querySelector("dialog[open], .bot-menu") && !(ev.target as HTMLElement).closest?.("dialog, input, select, #detalhes")) {
+  if (ev.key === "Escape" && !ev.defaultPrevented && estado.tela.tipo === "trabalho" && campoDaTela(estado.tela.id).parar && !celular.botsAbertos() && !buscaNaConversa.aberta() && !ditado.ativo() && !document.querySelector("dialog[open], .bot-menu") && !(ev.target as HTMLElement).closest?.(`${SELETOR_DENTRO_DA_SOBREPOSICAO}, input, select, #detalhes`)) {
     ev.preventDefault();
     const parar = document.querySelector<HTMLElement>('#composer .parar-envio[data-act="parar-trabalho"]');
     if (parar) void ACOES["parar-trabalho"]?.(parar);
     return;
   }
-  if (ev.key === "Escape" && (estado.tela.tipo === "trabalho" || estado.tela.tipo === "linha" || estado.tela.tipo === "nova-tarefa") && !celular.botsAbertos() && !buscaNaConversa.aberta() && !(ev.target as HTMLElement).closest?.("dialog, input, select, #detalhes") && !((ev.target as HTMLTextAreaElement).id === "composer-texto" && (ev.target as HTMLTextAreaElement).value.trim())) { ev.preventDefault(); fecharTask(); return; }
+  if (ev.key === "Escape" && (estado.tela.tipo === "trabalho" || estado.tela.tipo === "linha" || estado.tela.tipo === "nova-tarefa") && !celular.botsAbertos() && !buscaNaConversa.aberta() && !(ev.target as HTMLElement).closest?.(`${SELETOR_DENTRO_DA_SOBREPOSICAO}, input, select, #detalhes`) && !((ev.target as HTMLTextAreaElement).id === "composer-texto" && (ev.target as HTMLTextAreaElement).value.trim())) { ev.preventDefault(); fecharTask(); return; }
   // NOD-382: Esc na visão geral do perfil do celular volta à origem, como o ‹ (no campo do nome, o Esc só desfaz).
-  if (ev.key === "Escape" && ehCelular() && estado.perfilCelular && !estado.gaveta && !estado.avatarAberto && (ev.target as HTMLElement).closest?.("#detalhes") && !(ev.target as HTMLElement).closest?.("input, textarea, dialog")) { ev.preventDefault(); fecharPerfil(); return; }
+  if (ev.key === "Escape" && ehCelular() && estado.perfilCelular && !estado.gaveta && !estado.avatarAberto && (ev.target as HTMLElement).closest?.("#detalhes") && !(ev.target as HTMLElement).closest?.(`input, textarea, ${SELETOR_DENTRO_DA_SOBREPOSICAO}`)) { ev.preventDefault(); fecharPerfil(); return; }
   // Esc dentro da gaveta, num nível interno, volta um nível (o mesmo ‹ do topo).
   if (ev.key === "Escape" && estado.gaveta && (ev.target as HTMLElement).closest?.("#detalhes")) { ev.preventDefault(); voltarNivel(); return; }
   const ta = ev.target as HTMLTextAreaElement;
@@ -10807,7 +10889,7 @@ document.addEventListener("contextmenu", (ev) => {
   // (espera menor que 450 ms), ele abre o menu do bot segurado direto, sem piscar o menu comum.
   if (Date.now() - ultimoToqueLongo < MS_CONTEXTMENU_DO_GESTO) return;
   if (celular.ativo() && row.closest("#sidebar")) { toqueLongo.esquecer(); abrirMenuSegurado(row); return; }
-  if (a) abrirMenu(a, a.ownerId === estado.sessao?.pessoaId, row, (acao) => acaoDoBot(a, acao), ponto);
+  if (a) abrirMenuDoBot(a, row, ponto);
 });
 
 // NOD-379 (protótipo nod-379 v3): no celular o ⋯ sai e o menu do bot abre no toque longo. O bot segurado sobe por cima do
@@ -11150,8 +11232,14 @@ async function excluirTimeDaBarra(t: TimeDaBarra<BotDaFrota>): Promise<void> {
 }
 
 /** O menu de um item: as setas andam pelos botões habilitados; abre no cursor (clique direito) ou ao lado da âncora. */
-function abrirMenuDaBarra(html: string, ancora: HTMLElement | null, ponto: { x: number; y: number } | undefined, aoEscolher: (b: HTMLButtonElement) => void, folha = false): HTMLDialogElement {
+/**
+ * Os menus da barra (aba de tarefa, bots, outras abas, nova tarefa, times): o do Base UI quando o módulo dos diálogos
+ * chegou (ADR-179), a partir do mesmo HTML; a folha do celular segue no `<dialog>`. `aoFechar`: o menu saiu.
+ */
+function abrirMenuDaBarra(html: string, ancora: HTMLElement | null, ponto: { x: number; y: number } | undefined, aoEscolher: (b: HTMLButtonElement) => void, folha = false, aoFechar?: () => void): void {
+  if (moduloDosDialogos && !folha) { moduloDosDialogos.abrirMenuDeHtmlNoReact(document, { html, ancora, ponto, aoEscolher, aoFechar }); return; }
   const d = dialogo(html, true);
+  if (aoFechar) d.addEventListener("close", aoFechar, { once: true });
   if (folha) d.classList.add("pfc-folha");
   else {
     const r = ancora?.getBoundingClientRect();
@@ -11173,7 +11261,6 @@ function abrirMenuDaBarra(html: string, ancora: HTMLElement | null, ponto: { x: 
     itens[proximo]?.focus();
   });
   d.querySelector<HTMLButtonElement>("button:not([disabled])")?.focus();
-  return d;
 }
 
 /** O ⋯ do time (e o clique direito no cabeçalho): Renomear, Mover para cima/baixo, Excluir time. O Sem time só se move. */
