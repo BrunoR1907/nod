@@ -211,7 +211,7 @@ import { ehIa, fraseDoMotivoDaNota, inventarioDaIa, pedeInstalar } from "./telas
 import { renderRotinas } from "./telas/rotinas.ts";
 import { nomesDosMembros, renderCabecalhoSala, renderNovaSala } from "./telas/sala.ts";
 import { abertasPorAgente, pedidoParaAguardando, perguntasPorAgente, renderIncidentes, renderSuaVez, rotinasParadasPorAgente, SUBTITULO_ESPERANDO, SUBTITULO_ROTINA_PARADA } from "./telas/sua-vez.ts";
-import { aparenciaDoComposer } from "./telas/pergunta.ts";
+import { aparenciaDoComposer, topoDoComposer } from "./telas/pergunta.ts";
 import { BANDEJA, naoLidaDe, nomeDaConversa, renderNaoLidos, rotuloNaoLidos } from "./telas/nao-lidos.ts";
 import { DURACAO_AVISO_LOTE_MS, mostrarAvisoDesfazer } from "./lib/aviso-desfazer.ts";
 import { criarAtualizacaoNaWeb } from "./lib/atualizacao-app.ts";
@@ -602,6 +602,34 @@ if (telasNoReact) {
     if (estado.sessao) render();
   }, () => {
     // Sem o módulo, as telas continuam por string.
+  });
+}
+/**
+ * ADR-179 (fase 6, o campo de mensagem, por pedaços): as peças do campo já em componentes (web/react/composer/). Enquanto
+ * o módulo baixa, ou com `?composer-react=0`, seguem pelo desenho por string.
+ */
+let filasReact: import("./react/composer/composer.tsx").FilasNoReact | null = null;
+let topoReact: import("./react/composer/composer.tsx").TopoNoReact | null = null;
+if (reactNaRegiao("composer", window.location.href, guardadoDoNavegador())) {
+  void import("./react/composer/composer.tsx").then((m) => {
+    filasReact = m.criarFilasNoReact((chave) => removerAnexo(chave));
+    topoReact = m.criarTopoNoReact({
+      cancelarCitacao: () => {
+        const alvo = conversaAtual();
+        if (alvo) dispatch({ tipo: "citar", conversaId: alvo.conversaId, citacao: null });
+        document.getElementById("composer-texto")?.focus();
+      },
+      trocar: () => {
+        const alvo = conversaAtual();
+        const proxima = alvo ? proximaDoComposer(modoDoComposer(estado, alvo.conversaId)) : null;
+        if (proxima) escolherNoComposer(false, proxima);
+      },
+      outro: () => escolherNoComposer(true),
+    });
+    redesenharAnexos();
+    atualizarComposer();
+  }, () => {
+    // Sem o módulo, a fila continua por string.
   });
 }
 if (conversaNoReact || regioesLigadas.size > 0) {
@@ -3922,7 +3950,10 @@ function atualizarComposer(): void {
   if (!alvo || !caixa || !ta) { atualizarSeletorIa(); return; }
   const nota = document.getElementById("composer-nota");
   const a = aparenciaDoComposer(modoDoComposer(estado, alvo.conversaId), estado, { placeholder: placeholderPadrao(), nota: nota?.dataset.padrao ?? "" }, alvo.conversaId);
-  regiao("composer-pergunta", a.topo);
+  // ADR-179 (fase 6, pedaço 2): em React, o topo só troca o que mudou; por string, a região de sempre.
+  const topoEl = document.getElementById("composer-pergunta");
+  if (topoReact && topoEl) topoReact.desenhar(topoEl, topoDoComposer(modoDoComposer(estado, alvo.conversaId), estado, alvo.conversaId));
+  else regiao("composer-pergunta", a.topo);
   // ADR-094: no celular o texto de ajuda inteiro quebrava em duas linhas dentro do campo; lá fica o curto, e o leitor de
   // tela continua ouvindo o completo.
   // Item 10, rodada 2: com aprovação aberta e o campo no modo comum, mandar mensagem recusa o pedido (enviarComposer).
@@ -6288,11 +6319,13 @@ function redesenharAnexos(): void {
   const itens = anexosPendentes.get(alvo.chave) ?? [];
   // ADA-5: a fila é uma só (a da conversa); aparece no campo do chat e na pílula do Quadro.
   const pilula = document.querySelector<HTMLElement>('#quadro [data-composer="fila"]');
-  if (pilula) { pilula.innerHTML = renderItensAnexo(itens); pilula.hidden = itens.length === 0; }
+  // ADR-179: em React só o item que mudou é tocado (a miniatura fica, o progresso anda); por string, a fila inteira.
+  const desenharFila = (el: HTMLElement): void => { if (filasReact) filasReact.desenhar(el, itens); else el.innerHTML = renderItensAnexo(itens); };
+  if (pilula) { desenharFila(pilula); pilula.hidden = itens.length === 0; }
   quadroNaTela.atualizarPilula();
   const fila = document.getElementById("composer-anexos");
   if (!fila) return;
-  fila.innerHTML = renderItensAnexo(itens);
+  desenharFila(fila);
   fila.hidden = itens.length === 0;
   const r = document.getElementById("composer-resumo");
   if (r) r.textContent = resumoAnexos(itens);
