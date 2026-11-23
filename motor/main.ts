@@ -24,6 +24,9 @@ import { criarExecutarComando, iniciarLimpezaDasTasks, modoDaLimpeza, type Limpe
 import { iniciarDesfazeres, type Desfazeres } from "../src/adapters/executor/desfazeres.ts";
 import { iniciarEsperas, type Esperas } from "../src/adapters/executor/esperas.ts";
 import { iniciarComputador, type LacoComputador } from "../src/adapters/executor/computador.ts";
+import { agentBrowserDoLinux, agentBrowserNoWindows, chromeDoLinux, chromeDoWindows, iniciarNavegadorDaMaquina, motorDaMaquina, type NavegadorDaMaquina } from "../src/adapters/executor/navegador.ts";
+import { cookiesDoChromeDoPc, criarCofresDoWindows } from "../desktop/cofres-do-windows.ts";
+import { criarPonteDoChrome, pipeDoChrome, registrarHostNoWindows, rodarHostDoChrome, senhaDoChrome, type PonteDoChrome } from "../src/adapters/executor/chrome-da-pessoa.ts";
 import type { PlanoTurno } from "../src/contracts/plano-turno.ts";
 import { PAPEIS_MAQUINA } from "../src/contracts/ponte.ts";
 import { iniciarInstaladora, type Instaladora } from "../src/shared/instaladora.ts";
@@ -83,9 +86,13 @@ async function versaoDoMotor(): Promise<string> {
   return pkg.version;
 }
 
-/** Bundles (dist/motor) ficam lado a lado; em dev (`node motor/main.ts`) usa os fontes do desktop. */
+/**
+ * Bundles (dist/motor) ficam lado a lado; em dev (`node motor/main.ts`) usa o fonte que roda o `main` sozinho. Prova real
+ * (2026-11-20): o dev apontava para desktop/proxy.ts, que só reexporta o `main` (o bundle é quem o chama); o proxy saía
+ * calado e o turno ficava sem as ferramentas do nod ("o servidor nod falhou ao conectar").
+ */
 function caminhoAoLado(bundle: string, fonte: string): string {
-  return import.meta.url.endsWith(".mjs") ? join(dir, bundle) : join(dir, "..", "desktop", fonte);
+  return import.meta.url.endsWith(".mjs") ? join(dir, bundle) : join(dir, "..", fonte);
 }
 
 const INTERVALO_ITENS_GITHUB_MS = 5_000;
@@ -154,6 +161,7 @@ async function conectar(c: ConexaoMotor, executor: string, pasta: string, versao
   let desfazeres: Desfazeres | null = null;
   /** NOD-96 PR 3: o fio entre a ponte e o supervisor do computador desta máquina. */
   let computador: LacoComputador | null = null;
+  let navegador: NavegadorDaMaquina | null = null;
   /** NOD-94: a instaladora por SSH (só no papel motor e com o servidor que aceita). */
   let instaladora: Instaladora | null = null;
   const planosAqui = new Map<string, PlanoTurno>();
@@ -164,7 +172,7 @@ async function conectar(c: ConexaoMotor, executor: string, pasta: string, versao
   /** NOD-9 PR4: a atualização das IAs desta máquina (npm do motor no ~/.local); criada depois dos drivers. */
   let atualizadorIas: AtualizadorDeIas | null = null;
 
-  const lig = { urlNod: c.url, proxyPath: caminhoAoLado("proxy.mjs", "proxy.ts"), hookPath: caminhoAoLado("hook-nativas.mjs", "hook-nativas.ts"), nodePath: process.execPath, electronComoNode: false, sondaSemTurno: true, prazoSondaMs: prazoSondaDoEnv(process.env), filaDoForno: process.env.NOD_FILA_DO_FORNO !== "0", plataforma: process.platform, codexTerminalNoWindows: process.env.NOD_CODEX_TERMINAL_WINDOWS === "1" };
+  const lig = { urlNod: c.url, proxyPath: caminhoAoLado("proxy.mjs", "src/adapters/mcp-proxy/proxy.ts"), hookPath: caminhoAoLado("hook-nativas.mjs", "src/adapters/executor/hook-nativas.ts"), nodePath: process.execPath, electronComoNode: false, sondaSemTurno: true, prazoSondaMs: prazoSondaDoEnv(process.env), filaDoForno: process.env.NOD_FILA_DO_FORNO !== "0", plataforma: process.platform, codexTerminalNoWindows: process.env.NOD_CODEX_TERMINAL_WINDOWS === "1" };
   // A pasta do executor (sessões e turnos do CLI) fica fora da pasta da chave (pastaDoExecutor): um turno não está a um `../` dela.
   const envExecutor = { ...process.env, NOD_HOME: executor };
   // NOD-9 PR4: o mesmo portão do Mac (desktop/main.ts): o turno do Claude espera a atualização e pede a versão do modelo.
@@ -302,6 +310,21 @@ async function conectar(c: ConexaoMotor, executor: string, pasta: string, versao
   // NOD-96 PR 3 (ADR-122): o computador da pessoa. Puxa os comandos e repassa ao supervisor; servidor sem a flag (404)
   // deixa o laço quieto, tentando de novo a cada 10 min.
   computador = NO_WINDOWS ? null : iniciarComputador({ canal: ponteHttp.computador });
+  // ADR-190 (decisão 5): o navegador do bot nesta máquina sempre ligada. Puxa os comandos; o Chrome só abre no primeiro
+  // (servidor sem NOD_NAVEGADOR_NA_MAQUINA: 404, o laço espera 10 min). Chrome e binário: chromeDoLinux/agentBrowserDoLinux.
+  // 2026-11-22 (o navegador no PC): no Windows o motor é o executor do PC da pessoa (o app só abre a janela), então o
+  // navegador do bot roda aqui, com o agent-browser que a instalação pôs em <pasta do nod>\navegador, o Chrome (ou o
+  // Edge) do sistema e o que o Mac tem no app: o 1Password, o Bitwarden, o Chrome da pessoa e a confirmação (Windows Hello).
+  // 2026-11-23: o Chrome da pessoa pela extensão do nod (o "Trazer do meu Chrome" do PC). O motor registra o host do
+  // native messaging (HKCU, sem admin) e abre o pipe do usuário; falhar aqui só deixa a opção sem a extensão.
+  if (NO_WINDOWS && !ponteDoChrome) void ligarChromeDaPessoa();
+  navegador = iniciarNavegadorDaMaquina({
+    canal: ponteHttp.navegador,
+    motor: motorDaMaquina(NO_WINDOWS
+      ? { dados: join(pastaDoExecutor(process.env), "navegadores"), binario: agentBrowserNoWindows({ env: process.env, pastaDoMotor: dir }), chrome: () => chromeDoWindows(process.env), plataforma: "win32" }
+      : { dados: join(pastaDoExecutor(process.env), "navegadores"), binario: agentBrowserDoLinux(process.env, process.arch), chrome: () => chromeDoLinux(process.env) }),
+    ...(NO_WINDOWS ? { mac: criarCofresDoWindows({ env: process.env, cookies: (host) => cookiesDoChromeDoPc(host, process.env, ponteDoChrome) }) } : {}),
+  });
 
   const subirLaco = (reg: Registry) => {
     if (papel === "computador") { log("info", "motor_so_computador", { machine_id: dados.machineId }); return; }
@@ -447,6 +470,7 @@ async function conectar(c: ConexaoMotor, executor: string, pasta: string, versao
     esperas?.parar();
     desfazeres?.parar();
     computador?.parar();
+    navegador?.parar();
     vigia?.parar();
     ponteHttp.cancelar();
     const anterior = laco; laco = null;
@@ -490,7 +514,7 @@ async function rodar(): Promise<number> {
   const novasNoPath = atualizarPathNoWindows();
   if (novasNoPath.length > 0) log("info", "motor_path_do_registro", { pastas_novas: novasNoPath.length });
   // ADA-11 (ADR-147): no Windows o motor só sobe com o Git for Windows e o hook rodando pelo Git Bash (falha fechada).
-  const semGit = conferirGitForWindows({ nodePath: process.execPath, hookPath: caminhoAoLado("hook-nativas.mjs", "hook-nativas.ts") });
+  const semGit = conferirGitForWindows({ nodePath: process.execPath, hookPath: caminhoAoLado("hook-nativas.mjs", "src/adapters/executor/hook-nativas.ts") });
   if (semGit) {
     log("erro", "motor_sem_git_for_windows", { motivo: semGit });
     process.stderr.write(MENSAGEM_SEM_GIT_FOR_WINDOWS);
@@ -674,7 +698,7 @@ async function estado(): Promise<number> {
   process.stdout.write(!marca ? `Atualização automática: desligada (sem ${MARCA_DA_ATUALIZACAO})\n`
     : !mesmoServidor ? `Atualização automática: parada (a instalação é de outro servidor; rode de novo: ${comandoDeReinstalar(c?.url ?? "")})\n`
       : "Atualização automática: ligada (espera um momento sem turno)\n");
-  const lig = { urlNod: c?.url ?? "https://127.0.0.1", proxyPath: caminhoAoLado("proxy.mjs", "proxy.ts"), sondaSemTurno: true, electronComoNode: false };
+  const lig = { urlNod: c?.url ?? "https://127.0.0.1", proxyPath: caminhoAoLado("proxy.mjs", "src/adapters/mcp-proxy/proxy.ts"), sondaSemTurno: true, electronComoNode: false };
   const envExecutor = { ...process.env, NOD_HOME: pastaDoExecutor(process.env) };
   const cfg = await configDosDrivers(envExecutor);
   const criado = await criarRegistryDetalhado(envExecutor, [criarClaudeCliDriver(lig), criarCodexCliDriver(lig)], { cfg });
@@ -714,6 +738,19 @@ function protegerAsIas(): void {
   });
 }
 
+/** A ponte com o Chrome da pessoa (a extensão do nod), uma por processo do motor no Windows. */
+let ponteDoChrome: PonteDoChrome | null = null;
+async function ligarChromeDaPessoa(): Promise<void> {
+  try {
+    const pasta = pastaDoMotor(process.env);
+    const senha = await senhaDoChrome(pasta, true);
+    await registrarHostNoWindows({ pasta, nodeExe: process.execPath, motorMjs: fileURLToPath(import.meta.url), systemRoot: process.env.SystemRoot ?? "C:\\Windows" });
+    ponteDoChrome = await criarPonteDoChrome({ pipe: pipeDoChrome(pasta), senha: senha! });
+  } catch (e) {
+    log("aviso", "navegador_chrome_da_pessoa_falhou", { erro: e instanceof Error ? e.message : "desconhecido" });
+  }
+}
+
 protegerAsIas();
 const comando = lerComando(process.argv.slice(2));
 const saida =
@@ -724,5 +761,6 @@ const saida =
   : comando.tipo === "atualizar-ia" ? atualizarIa(comando.ia)
   : comando.tipo === "desinstalar" ? desinstalarDaqui(comando)
   : comando.tipo === "versao" ? versaoDoMotor().then((v) => { process.stdout.write(`${v}\n`); return 0; })
+  : comando.tipo === "navegador-host" ? (async () => rodarHostDoChrome({ pipe: pipeDoChrome(pastaDoMotor(process.env)), senha: await senhaDoChrome(pastaDoMotor(process.env), false), entrada: process.stdin, saida: process.stdout }))()
   : Promise.resolve((process.stdout.write(`${comando.erro ? `${comando.erro}\n\n` : ""}${AJUDA}`), comando.erro ? 1 : 0));
 saida.then((codigo) => process.exit(codigo), (e: unknown) => { process.stderr.write(`${e instanceof Error ? e.message : String(e)}\n`); process.exit(1); });
