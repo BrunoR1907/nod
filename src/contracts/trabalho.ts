@@ -54,6 +54,7 @@ export type Trabalho = CamposDeFrente & {
 
 /** O que a web recebe: o trabalho mais o que a faixa e as listas mostram sem outra ida ao servidor. */
 export type TrabalhoDto = Omit<Trabalho, "tenantId" | "sessaoCli" | "sessaoHarness" | "sessaoExecutor"> & {
+  tarefa?: import("./tarefa.ts").TarefaNoTrabalho; // ADR-192 (etapa 3): a Tarefa (objetivo) ligada, com estado e atividade; ausente = sem Tarefa
   /** Nome do bot que pediu (origem = colega), para a etiqueta "pedido do Chico". */
   pedidoPorNome: string | null;
   /** Nome da rotina (origem = rotina), para a etiqueta "rotina". */
