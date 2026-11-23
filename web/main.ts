@@ -483,7 +483,29 @@ document.addEventListener("toggle", (ev) => {
  * render por regiões". A web DECIDE e pede por REST; nunca executa (ADR-020). Nenhuma decisão do produto
  * exige o app aberto: sem executor a tela continua respondendo (web-sem-app).
  */
-let estado: Estado = estadoInicial;
+/**
+ * Lote B (auditoria de 2026-11-22): a escolha feita num cartão de desvio ("Responder com o ChatGPT desta vez") sobrevive
+ * ao recarregar a aba (sessionStorage), para o cartão encolhido continuar dizendo o que foi feito. Só as que deram certo.
+ */
+const CHAVE_DESVIOS_ESCOLHIDOS = "nod.desvios-escolhidos";
+function escolhasDosDesvios(): Estado["desviosAgindo"] {
+  try {
+    const v = JSON.parse(window.sessionStorage.getItem(CHAVE_DESVIOS_ESCOLHIDOS) ?? "{}") as Record<string, { acao?: unknown; agora?: unknown; feito?: unknown }>;
+    return Object.fromEntries(Object.entries(v).filter(([, x]) => typeof x?.acao === "string" && typeof x.agora === "string" && typeof x.feito === "string")
+      .map(([id, x]) => [id, { acao: x.acao as string, agora: x.agora as string, feito: x.feito as string, agindo: false }]));
+  } catch {
+    return {};
+  }
+}
+function guardarEscolhasDosDesvios(d: Estado["desviosAgindo"]): void {
+  try {
+    window.sessionStorage.setItem(CHAVE_DESVIOS_ESCOLHIDOS, JSON.stringify(Object.fromEntries(Object.entries(d).filter(([, x]) => !x.agindo))));
+  } catch {
+    // Sem storage (aba privada): a linha encolhida diz o genérico ("A mensagem saiu").
+  }
+}
+
+let estado: Estado = { ...estadoInicial, desviosAgindo: escolhasDosDesvios() };
 /** ADR-179 (fase 1 do React): a mesma `estado` vista pelas regiões React (useLoja). render() avisa; nenhuma região montada ainda. */
 const lojaDoEstado = criarLoja(() => estado);
 /** O Marketplace em modal (web/react/marketplace/; as funções moram junto de `abrirModalDoMarketplace`). Aqui no topo: render() lê. */
@@ -2560,6 +2582,30 @@ async function definirPadraoDoApp(conectorId: string, nivel: "nenhum" | "leitura
 
 function focarConfirmacao(): void {
   queueMicrotask(() => document.querySelector<HTMLElement>(".acessos-confirma [data-foco-inicial]")?.focus());
+}
+
+/**
+ * Lote B das Jornadas da IA (auditoria de 2026-11-22): o clique num botão do cartão do desvio. O botão gira enquanto o
+ * pedido está no ar (web/telas/desvio.ts, `faseDoCartao`); deu certo, a escolha fica para a linha do cartão encolhido
+ * ("Respondido pelo ChatGPT"); deu errado, ou o servidor não refez ("já refeito", conta fora), o cartão volta a abrir.
+ */
+function agirNoCartao(el: HTMLElement, pedido: () => Promise<string | null | undefined>): Promise<void> {
+  const cartao = el.dataset.cartao;
+  const marcar = (agindo: boolean | null) => {
+    if (!cartao) return;
+    dispatch({ tipo: "desvio-agindo", mensagemId: cartao, valor: agindo === null ? null : { acao: el.dataset.acao ?? "", agora: el.dataset.agora ?? "", feito: el.dataset.feito ?? "", agindo } });
+    guardarEscolhasDosDesvios(estado.desviosAgindo);
+  };
+  marcar(true);
+  return agir(async () => {
+    try {
+      const motivo = await pedido();
+      marcar(motivo ? null : false);
+    } catch (e) {
+      marcar(null);
+      throw e;
+    }
+  });
 }
 
 async function agir(fn: () => Promise<void>): Promise<void> {
@@ -6308,8 +6354,9 @@ function falaDoTurnoNaFila(turnoId: string): { conversaId: string; mensagemId: s
 
 const seletorDaLinha = (act: string, turnoId: string): string => `.fila-linha [data-act="${act}"][data-id="${CSS.escape(turnoId)}"]`;
 
-function cancelarDaFila(turnoId: string): void {
-  const fala = falaDoTurnoNaFila(turnoId);
+function cancelarDaFila(turnoId: string, doCartao: { conversaId: string; mensagemId: string } | null = null): void {
+  // Lote B: o Cancelar do cartão do desvio tira a cópia que espera (fora da fila da tela, ADR-086); o botão diz a fala.
+  const fala = falaDoTurnoNaFila(turnoId) ?? doCartao;
   const a = api;
   if (!turnoId || !fala || !a) return;
   const origem = document.activeElement ?? document.body;
@@ -9367,7 +9414,7 @@ const ACOES: Record<string, (el: HTMLElement) => Promise<void> | void> = {
   // definido em 2026-09-24 (ADR-045): "Entendi" no aviso de queda do Mac.
   // Cancelar só a mensagem na fila (revisto em 2026-11-16, web/lib/cancelar-na-fila.ts): o POST sai na hora do clique
   // (a absorção acontece no próximo passo do bot, e os 5 s locais de antes perdiam a corrida); o Desfazer vem depois do OK.
-  "cancelar-turno": (el) => cancelarDaFila(el.dataset.id ?? ""),
+  "cancelar-turno": (el) => cancelarDaFila(el.dataset.id ?? "", el.dataset.conversa && el.dataset.mensagem ? { conversaId: el.dataset.conversa, mensagemId: el.dataset.mensagem } : null),
   "desfazer-cancelamento": (el) => desfazerDaFila(el.dataset.id ?? ""),
   // Parte 1 do plano "o pensamento no chat": a fala pendente que falhou.
   "reenviar-pendente": (el) => reenviarPendente(el.dataset.conversa ?? "", el.dataset.id ?? ""),
@@ -9894,7 +9941,7 @@ const ACOES: Record<string, (el: HTMLElement) => Promise<void> | void> = {
     dispatch({ tipo: "conectar-maquina", conectar: null });
     dispatch({ tipo: "invalidar", quais: ["frota", "maquinas"] });
   }),
-  "rodar-desta-vez": (el) => agir(async () => {
+  "rodar-desta-vez": (el) => agirNoCartao(el, async () => {
     const conversaId = el.dataset.conversa ?? "";
     const turnoId = el.dataset.turno || undefined;
     const r = await api!.rodarDestaVez(conversaId, el.dataset.maquina ?? "", turnoId, el.dataset.conta || undefined);
@@ -9902,6 +9949,22 @@ const ACOES: Record<string, (el: HTMLElement) => Promise<void> | void> = {
     if (r?.motivo === "ja_refeito" && turnoId) dispatch({ tipo: "turno-refeito", turnoId });
     avisarMotivoDaNota(r?.motivo);
     dispatch({ tipo: "invalidar", quais: [`conversa:${conversaId}` as Invalidacao] });
+    return r?.motivo;
+  }),
+  // Lote B das Jornadas da IA (2026-11-22): o botão do cartão de desvio — esta mensagem, uma vez, na outra IA pronta.
+  "responder-com-outra-ia": (el) => agirNoCartao(el, async () => {
+    const conversaId = el.dataset.conversa ?? "";
+    const r = await api!.responderComOutraIa(conversaId, el.dataset.turno ?? "", el.dataset.ia ?? "");
+    avisarMotivoDaNota(r?.data?.motivo);
+    dispatch({ tipo: "invalidar", quais: [`conversa:${conversaId}` as Invalidacao] });
+    return r?.data?.motivo;
+  }),
+  "reinstalar-e-tentar": (el) => agirNoCartao(el, async () => {
+    const conversaId = el.dataset.conversa ?? "";
+    const r = await api!.reinstalarETentar(conversaId, el.dataset.turno ?? "", el.dataset.maquina ?? "", el.dataset.ia ?? "");
+    avisarMotivoDaNota(r?.data?.motivo);
+    dispatch({ tipo: "invalidar", quais: [`conversa:${conversaId}` as Invalidacao] });
+    return r?.data?.motivo;
   }),
   // NOD-314: a task na fila de uma máquina sem contato roda em outra, desta vez; relê a task e a lista.
   "rodar-trabalho-desta-vez": (el) => agir(async () => {
