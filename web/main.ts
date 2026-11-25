@@ -10947,6 +10947,16 @@ document.addEventListener("keydown", (ev) => {
   focarGatilho(volta);
 }, true);
 
+// QA-189: os formulários que criam algo no servidor mandavam dois POSTs no duplo clique (ou Enter + clique): dois tokens
+// MCP (só o último aparecia, o outro ficava válido sem ninguém ter visto), duas rotinas iguais, duas salas, duas memórias.
+// A chave de máquina já tinha `umaPorVez`; aqui vale a mesma trava (QA-186) para os outros, inclusive a Nova sala e a Nova
+// rotina em React, que chamam estes handlers.
+const FORMS_QUE_CRIAM = ["gerar-token-mcp", "criar-rotina", "criar-sala", "criar-memoria", "criar-agente"] as const;
+for (const qual of FORMS_QUE_CRIAM) {
+  const tratar = FORMS[qual];
+  if (tratar) FORMS[qual] = (form) => umEnvioPorVez(`cria:${qual}`, form, () => tratar(form));
+}
+
 document.addEventListener("submit", (ev) => {
   const form = (ev.target as HTMLElement).closest<HTMLFormElement>("form[data-form]");
   if (!form) return;
