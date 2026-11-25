@@ -508,7 +508,7 @@ function guardarEscolhasDosDesvios(d: Estado["desviosAgindo"]): void {
   try {
     window.sessionStorage.setItem(CHAVE_DESVIOS_ESCOLHIDOS, JSON.stringify(Object.fromEntries(Object.entries(d).filter(([, x]) => !x.agindo))));
   } catch {
-    // Sem storage (aba privada): a linha encolhida diz o genérico ("A mensagem saiu").
+    // Sem storage (aba privada): a linha encolhida diz o genérico ("A conversa seguiu").
   }
 }
 
@@ -2551,6 +2551,18 @@ function pausarRotina(id: string, ate?: string): Promise<void> {
 }
 function ativarRotina(id: string): Promise<void> {
   return agir(async () => void (await api!.ativarRotina(id), dispatch({ tipo: "invalidar", quais: ["rotinas"] })));
+}
+/** PR #333 (achado 4): Excluir pela tela de Rotinas, depois do "Excluir esta rotina?" (cancelar não muda nada). */
+function excluirRotinaPelaTela(id: string, titulo: string, ancora: HTMLElement): Promise<void> {
+  return agir(async () => {
+    const texto = `«${titulo}» para de rodar e sai da lista. As execuções passadas continuam na conversa do bot.`;
+    const sim = moduloDosDialogos
+      ? await moduloDosDialogos.confirmarNoReact(document, { idDoTitulo: "excluir-rotina-titulo", titulo: "Excluir esta rotina?", texto, cancelar: "Cancelar", confirmar: "Excluir", principal: "cancelar", origem: ancora })
+      : window.confirm(`Excluir esta rotina?\n\n${texto}`);
+    if (!sim) return;
+    await api!.excluirRotina(id);
+    dispatch({ tipo: "invalidar", quais: ["rotinas"] });
+  });
 }
 /** `ancora`: o botão que pediu (o diálogo "rodar mais uma" abre junto dele). */
 function executarRotina(id: string, agenteId: string, ancora: HTMLElement): Promise<void> {
@@ -8305,8 +8317,10 @@ function linhaProvisoria(): string {
   const p = botProvisorio;
   if (!p) return "";
   if (p.agenteId) {
+    // PR #333 (achado 18): com o bot já na frota, a linha dele aparece na barra; esperar as boas-vindas deixava as duas
+    // ("Criando…" e a do bot) por uns segundos. A linha real, selecionada, ocupa o lugar assim que chega.
     const agente = estado.frota?.agentes.find((a) => a.id === p.agenteId);
-    if (agente && faseDasBoasVindasDe(agente) !== "vazia") { botProvisorio = null; return ""; }
+    if (agente) { botProvisorio = null; return ""; }
   }
   return `<div class="bot-row bot-provisorio selecionado" aria-busy="true"><span class="row" role="status" aria-label="${esc(p.nome)}, criando…"><span class="provisorio-av" aria-hidden="true">${IC_PESSOA_PROVISORIO}</span><span class="txt"><span class="nome-linha"><b>${esc(p.nome)}</b></span><span class="sub">Criando…</span></span></span></div>`;
 }
@@ -9818,6 +9832,7 @@ const ACOES: Record<string, (el: HTMLElement) => Promise<void> | void> = {
     agir(async () => void (await api!.pausarRotina(el.dataset.id ?? "", ate.slice(0, 16)), dispatch({ tipo: "invalidar", quais: ["rotinas"] })));
   },
   "ativar-rotina": (el) => ativarRotina(el.dataset.id ?? ""),
+  "excluir-rotina": (el) => excluirRotinaPelaTela(el.dataset.id ?? "", el.dataset.titulo ?? "esta rotina", el),
   "ver-execucoes": (el) => alternarExecucoes(el.dataset.id ?? ""),
   "sondar-conector": (el) => agir(async () => void (await api!.sondarConector(el.dataset.id ?? ""), dispatch({ tipo: "invalidar", quais: ["conectores", "frota"] }))),
   "habilitar-conector": (el) => agir(async () => void (await api!.habilitarConector(el.dataset.id ?? "", true), dispatch({ tipo: "invalidar", quais: ["conectores"] }))),
