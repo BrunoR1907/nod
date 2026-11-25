@@ -204,6 +204,7 @@ import { voltaDaTela } from "./lib/volta.ts";
 import { cabecalhoSecao, CHAVE_SECOES_RECOLHIDAS, chaveDaSecao, definirSecaoRecolhida, ESPERA, estadoDaSecao, gruposDaBarra, lerSecoesRecolhidas, type AvisoBot } from "./lib/secoes.ts";
 import { faixaDeConectores, faixaDoUso, provedoresDoMenu, type AvisoDoUso, type DadosMenuConta } from "./telas/menu-conta.ts";
 import { renderConectores } from "./telas/conectores.ts";
+import { umEnvioPorVez } from "./lib/envio-unico.ts";
 import { appsQueFaltam } from "./telas/rotina-precisa.ts";
 import { criarConexoes } from "./lib/conexao.ts";
 import type { Proposta } from "../src/contracts/conversa.ts";
@@ -10608,18 +10609,18 @@ const FORMS: Record<string, (form: HTMLFormElement) => Promise<void>> = {
       dispatch({ tipo: "invalidar", quais: ["salas"] });
       navegar({ tipo: "sala", salaId: r.ids.salaId ?? "", conversaId: r.ids.conversaId ?? "" });
     }),
-  "configurar-composio": (form) => agir(async () => {
+  "configurar-composio": (form) => umEnvioPorVez("configurar-composio", form, () => agir(async () => {
     const d = new FormData(form);
     await api!.configurarComposio(String(d.get("chave") ?? ""));
     form.reset();
     dispatch({ tipo: "invalidar", quais: ["conectores"] });
-  }),
-  "app-github": (form) => agir(async () => {
+  })),
+  "app-github": (form) => umEnvioPorVez("app-github", form, () => agir(async () => {
     const d = new FormData(form);
     await api!.appGithub({ appId: String(d.get("appId") ?? ""), instalacaoId: String(d.get("instalacaoId") ?? ""), chavePrivada: String(d.get("chavePrivada") ?? "") });
     form.reset();
     dispatch({ tipo: "aviso-conexao", texto: "GitHub App da organização guardado. As rotinas de quem não conectou o próprio GitHub passam a usá-lo." });
-  }),
+  })),
   // ADR-190 (L4): o código vai do campo privado do cartão direto para a página (POST navegador/codigo). Não passa por
   // estado, storage nem conversa; o campo é limpo assim que o servidor responde.
   "nv-codigo": async (form) => {
@@ -10678,23 +10679,23 @@ const FORMS: Record<string, (form: HTMLFormElement) => Promise<void>> = {
       focarCampo();
     }
   },
-  "token-github": (form) => agir(async () => {
+  "token-github": (form) => umEnvioPorVez("token-github", form, () => agir(async () => {
     const d = new FormData(form);
     const r = await api!.tokenGithub(String(d.get("token") ?? ""));
     form.reset();
     dispatch({ tipo: "aviso-conexao", texto: r.conectado ? "Token guardado. O GitHub usa o gh desta máquina quando ele está logado, e o token nos outros casos." : "Token guardado, mas o GitHub não respondeu. Tente Conectar de novo em instantes." });
     dispatch({ tipo: "invalidar", quais: ["conectores"] });
-  }),
-  "credenciais-conector": (form) => agir(async () => {
+  })),
+  "credenciais-conector": (form) => umEnvioPorVez("credenciais-conector", form, () => agir(async () => {
     const d = new FormData(form);
     const env = lerCredenciaisJson(String(d.get("env") ?? ""), "obrigatorio");
     if (!env) { dispatch({ tipo: "erro", erro: { codigo: "entrada_invalida", mensagem: FRASE_CREDENCIAIS_INVALIDAS } }); return; }
     await api!.atualizarCredenciais(form.dataset.id ?? "", env);
     form.reset();
     dispatch({ tipo: "invalidar", quais: ["conectores"] });
-  }),
+  })),
   "registrar-conector": (form) =>
-    agir(async () => {
+    umEnvioPorVez("registrar-conector", form, () => agir(async () => {
       const d = new FormData(form);
       const args = String(d.get("args") ?? "").split("\n").map((s) => s.trim()).filter(Boolean);
       const env = lerCredenciaisJson(String(d.get("env") ?? ""), "vale-vazio");
@@ -10702,14 +10703,14 @@ const FORMS: Record<string, (form: HTMLFormElement) => Promise<void>> = {
       await api!.registrarConector({ nome: d.get("nome"), slug: d.get("slug"), transporte: d.get("transporte"), comando: String(d.get("comando") ?? "") || null, args, url: String(d.get("url") ?? "") || null, env, declaracao: d.get("declaracao") });
       form.reset();
       dispatch({ tipo: "invalidar", quais: ["conectores"] });
-    }),
+    })),
   conceder: (form) =>
-    agir(async () => {
+    umEnvioPorVez("conceder", form, () => agir(async () => {
       const d = new FormData(form);
       const agenteId = String(d.get("agenteId") ?? "");
       await api!.conceder(agenteId, form.dataset.id ?? "", String(d.get("capacidade") ?? ""));
       dispatch({ tipo: "invalidar", quais: [`concessoes:${agenteId}`, "frota"] });
-    }),
+    })),
 };
 
 instalarDicaDeLink(document);
