@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { createHash, hkdfSync, randomUUID } from "node:crypto";
-import { chmod, lstat, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, open, readdir, readFile, rm, stat } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import { basename, dirname, join } from "node:path";
@@ -236,12 +236,21 @@ export const SESSAO_IDENTIDADE = "identidade";
 const SALTOS_DO_DOWNLOAD = 5;
 const LIMITE_DOWNLOAD_BYTES = 200 * 1024 * 1024;
 
-/** O cookie do perfil vale para o endereço: domínio (com ou sem ponto), caminho e, se seguro, só em https. */
+/**
+ * O cookie do perfil vale para o endereço, como o Chrome decide (RFC 6265 §5.1.3 e §5.1.4).
+ * O `cookies` do agent-browser segue o CDP: `.exemplo.com` é cookie de domínio (vale nos subdomínios);
+ * `exemplo.com`, sem ponto, é só do site (QA r217: no Chromium real o Chrome não o manda a `a.exemplo.com`).
+ * Caminho casa por segmento: `/conta` vale em `/conta` e `/conta/x`, não em `/contas`.
+ */
 export function cookieVale(c: Record<string, unknown>, u: URL): boolean {
-  const dominio = str(c.domain).replace(/^\./, "").toLowerCase();
+  const bruto = str(c.domain).toLowerCase();
+  const soDoSite = !bruto.startsWith(".");
+  const dominio = bruto.replace(/^\./, "");
   const host = u.hostname.toLowerCase();
-  if (!dominio || (host !== dominio && !host.endsWith(`.${dominio}`))) return false;
-  if (!u.pathname.startsWith(str(c.path) || "/")) return false;
+  if (!dominio || (host !== dominio && (soDoSite || !host.endsWith(`.${dominio}`)))) return false;
+  const caminho = str(c.path) || "/";
+  const p = u.pathname || "/";
+  if (p !== caminho && !(p.startsWith(caminho) && (caminho.endsWith("/") || p[caminho.length] === "/"))) return false;
   return c.secure !== true || u.protocol === "https:";
 }
 
@@ -576,12 +585,36 @@ export function criarMotorAgentBrowser(o: OpcoesMotorAgentBrowser): MotorNavegad
       if (!r.ok) throw new FalhaNavegador("acao_falhou", `o site respondeu ${r.status} ao download`);
       const tamanho = Number(r.headers.get("content-length") ?? "0");
       if (tamanho > LIMITE_DOWNLOAD_BYTES) throw new FalhaNavegador("acao_falhou", "o arquivo passa de 200 MB");
-      const dados = Buffer.from(await r.arrayBuffer());
-      if (dados.length > LIMITE_DOWNLOAD_BYTES) throw new FalhaNavegador("acao_falhou", "o arquivo passa de 200 MB");
-      await writeFile(caminho, dados);
-      return dados.length;
+      return await gravarComTeto(r, caminho);
     }
     throw new FalhaNavegador("acao_falhou", "o download redirecionou vezes demais");
+  }
+  /**
+   * medido em 2026-11-25 (QA Nod, r216): com `arrayBuffer()` o corpo inteiro ia para a memória antes do teto — um
+   * servidor sem `content-length` (chunked) pôs 1,2 GB no processo em 6,5 s antes do "passa de 200 MB", e em 60 s
+   * de prazo chegaria a vários GB no motor que serve todos os bots. Agora grava em pedaços e corta no teto.
+   */
+  async function gravarComTeto(r: Response, caminho: string): Promise<number> {
+    const arq = await open(caminho, "w");
+    let bytes = 0;
+    try {
+      if (r.body) {
+        const leitor = r.body.getReader();
+        for (;;) {
+          const { done, value } = await leitor.read();
+          if (done) break;
+          bytes += value.byteLength;
+          if (bytes > LIMITE_DOWNLOAD_BYTES) { await leitor.cancel().catch(() => {}); throw new FalhaNavegador("acao_falhou", "o arquivo passa de 200 MB"); }
+          await arq.write(value);
+        }
+      }
+      await arq.close();
+      return bytes;
+    } catch (e) {
+      await arq.close().catch(() => {});
+      await rm(caminho, { force: true }).catch(() => {});
+      throw e;
+    }
   }
   async function portaDoStream(s: SessaoNavegador): Promise<number | null> {
     let d = await rodar(s, ["stream", "status"]);
