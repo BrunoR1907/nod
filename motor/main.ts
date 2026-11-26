@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
+import { mkdirSync } from "node:fs";
 import { homedir, hostname, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -24,6 +25,10 @@ import { criarExecutarComando, iniciarLimpezaDasTasks, modoDaLimpeza, type Limpe
 import { iniciarDesfazeres, type Desfazeres } from "../src/adapters/executor/desfazeres.ts";
 import { iniciarEsperas, type Esperas } from "../src/adapters/executor/esperas.ts";
 import { iniciarComputador, type LacoComputador } from "../src/adapters/executor/computador.ts";
+import { criarSeuComputadorLocal, type SeuComputadorLocal } from "../src/adapters/seu-computador/driver.ts";
+import { listarAppsLocais } from "../src/adapters/seu-computador/apps-locais.ts";
+import { aquecerDriver, baixadorDoDriver } from "../src/adapters/seu-computador/binario.ts";
+import { publicarAtividade, vigiarParada } from "../src/adapters/seu-computador/sinal-entre-processos.ts";
 import { agentBrowserDoLinux, agentBrowserNoWindows, chromeDoLinux, chromeDoWindows, iniciarNavegadorDaMaquina, motorDaMaquina, type NavegadorDaMaquina } from "../src/adapters/executor/navegador.ts";
 import { cookiesDoChromeDoPc, criarCofresDoWindows } from "../desktop/cofres-do-windows.ts";
 import { criarPonteDoChrome, pipeDoChrome, registrarHostNoWindows, rodarHostDoChrome, senhaDoChrome, type PonteDoChrome } from "../src/adapters/executor/chrome-da-pessoa.ts";
@@ -164,6 +169,7 @@ async function conectar(c: ConexaoMotor, executor: string, pasta: string, versao
   /** NOD-96 PR 3: o fio entre a ponte e o supervisor do computador desta máquina. */
   let computador: LacoComputador | null = null;
   let navegador: NavegadorDaMaquina | null = null;
+  let seuComputadorPc: SeuComputadorLocal | null = null;
   /** NOD-94: a instaladora por SSH (só no papel motor e com o servidor que aceita). */
   let instaladora: Instaladora | null = null;
   const planosAqui = new Map<string, PlanoTurno>();
@@ -326,7 +332,25 @@ async function conectar(c: ConexaoMotor, executor: string, pasta: string, versao
       ? { dados: join(pastaDoExecutor(process.env), "navegadores"), binario: agentBrowserNoWindows({ env: process.env, pastaDoMotor: dir }), chrome: () => chromeDoWindows(process.env), plataforma: "win32" }
       : { dados: join(pastaDoExecutor(process.env), "navegadores"), binario: agentBrowserDoLinux(process.env, process.arch), chrome: () => chromeDoLinux(process.env) }),
     ...(NO_WINDOWS ? { mac: criarCofresDoWindows({ env: process.env, cookies: (host) => cookiesDoChromeDoPc(host, process.env, ponteDoChrome) }) } : {}),
+    // ADR-197: o computador da pessoa no PC. O motor roda na sessão interativa dela (tarefa AtLogOn, sem elevação), então
+    // o cua-driver que ele sobe enxerga os apps dela pela UI Automation. O pacote fixo é baixado uma vez para a pasta do
+    // executor (sha256 conferido); sem ele, o comando responde indisponível.
+    ...(NO_WINDOWS ? { seuComputador: seuComputadorDoPc() } : {}),
   });
+
+  function seuComputadorDoPc(): SeuComputadorLocal {
+    const pasta = join(pastaDoExecutor(process.env), "seu-computador");
+    if (!seuComputadorPc) {
+      mkdirSync(pasta, { recursive: true });
+      // A ilha e a borda são do app do Windows: o motor publica cada ação e ouve o Parar (sinal-entre-processos.ts).
+      const binario = baixadorDoDriver({ plataforma: "win32", pasta, env: process.env });
+      aquecerDriver(binario);
+      const sc = criarSeuComputadorLocal({ plataforma: "win32", binario, pasta, listarApps: () => listarAppsLocais("win32", { env: process.env }), aoAtividade: (a) => publicarAtividade(pasta, a) });
+      vigiarParada(pasta, () => { void sc.parar(); });
+      seuComputadorPc = sc;
+    }
+    return seuComputadorPc;
+  }
 
   const subirLaco = (reg: Registry) => {
     if (papel === "computador") { log("info", "motor_so_computador", { machine_id: dados.machineId }); return; }
