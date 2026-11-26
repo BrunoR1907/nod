@@ -63,11 +63,16 @@ Telas no Paper, arquivo "nod · Chat e conversa", página "Seu computador · a A
 
 6. **Sempre à vista.** O driver age por trás da janela, sem tomar o mouse. Se a pessoa está mexendo no mesmo app (é o
    app da frente e houve tecla ou mouse há menos de 2 s), o bot pausa — a ilha diz "em pausa enquanto você usa o app" —
-   e segue depois de 10 s sem ela mexer; passado 1 min, a ferramenta volta `pessoa_usando`. No Mac, a ilha do nod no topo da tela
+   e segue depois de 10 s sem ela mexer; passado 1 min, a ferramenta volta `pessoa_usando`. No Mac, o app da frente
+   pelo NSWorkspace e o tempo ocioso pelo Electron; no PC, um PowerShell que o motor deixa aberto (GetForegroundWindow e
+   GetLastInputInfo, `pessoa-windows.ts`). No PC, a ilha e a borda são do app do Windows: o motor publica cada ação em
+   `<pasta do executor>\seu-computador\atividade.json` e o Parar volta por `parar.json`. No Mac, a ilha do nod no topo da tela
    ("Ada está usando seu Mac · Numbers · clicando · Parar") aparece a cada ação e some 12 s depois, e uma borda âmbar contorna a janela do app (uma janela do nod transparente,
    que deixa o clique passar); Parar e bloquear a
-   tela derrubam o driver na hora e o bot recebe "a pessoa parou". O cursor do agente é o do próprio driver. A aba do
-   painel recebe o último quadro da janela e os passos (`GET /agentes/:id/seu-computador`, SSE `seu_computador.mudou`).
+   tela derrubam o driver na hora e o bot recebe "a pessoa parou". O cursor do agente é o do próprio driver. No painel, o lugar
+   "Seu Mac"/"Seu PC" (ao lado de Navegador e Computador) aparece quando o bot usou o computador da pessoa: o último quadro
+   da janela, com a borda âmbar enquanto está ao vivo, e "O que <bot> fez" (`GET /agentes/:id/seu-computador`, SSE
+   `seu_computador.mudou`; `web/lib/seu-computador-painel.ts`).
 
 7. **O que fica fora, sempre.** Ajustes do Sistema e Painel de Controle, gerenciadores de senha, terminais, Automator e
    Editor de Scripts, Monitor de Atividade e o próprio nod (`src/domain/seu-computador.ts`), nem com "Sempre". Diálogos
@@ -114,8 +119,6 @@ Transporte: a mesma fila da máquina do navegador do bot (`navegador/puxar`, ADR
 
 ## Fica para depois (fase 2)
 
-- A pausa quando a pessoa mexe, no Windows (a ilha e a borda já existem lá: o motor publica cada ação em
-  `<pasta do executor>\seu-computador\atividade.json` e o app do Windows desenha; o Parar volta por `parar.json`).
 - Rotinas usando apps marcados com "Sempre", com o aparelho ligado.
 - O caminho no chat para tirar apps; multi-monitor e DPI misto no Windows; Linux da pessoa.
 
